@@ -26,11 +26,13 @@ class AIProvider(abc.ABC):
 
 
 class GeminiProvider(AIProvider):
+    model_name: str = "gemini-2.5-flash"
 
     def __init__(self, api_key: str):
         self.api_key = api_key
         # Configure the genai SDK with the provided API key
         genai.configure(api_key=self.api_key)
+
 
     async def generate(
         self,

@@ -4,6 +4,8 @@ from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
+from functools import lru_cache
+
 class Settings(BaseSettings):
     DATABASE_URL: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/ideaforge"
     REDIS_URL: str = "redis://localhost:6379"
@@ -35,4 +37,10 @@ class Settings(BaseSettings):
         return v
 
 
-settings = Settings()
+@lru_cache()
+def get_settings() -> Settings:
+    return Settings()
+
+
+settings = get_settings()
+
