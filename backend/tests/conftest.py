@@ -2,8 +2,11 @@ import asyncio
 import builtins
 import os
 import sys
+from importlib.abc import Loader, MetaPathFinder
+from importlib.machinery import ModuleSpec
 import pytest
 from httpx import ASGITransport, AsyncClient
+from sqlalchemy import text
 
 # Configure path resolutions
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
@@ -66,3 +69,14 @@ async def client():
         transport=ASGITransport(app=app), base_url="http://testserver"
     ) as ac:
         yield ac
+
+
+@pytest.fixture(autouse=True)
+async def cleanup_db():
+    from app.core.database import async_session, engine
+
+    async with async_session() as session:
+        await session.execute(text("TRUNCATE TABLE users CASCADE;"))
+        await session.commit()
+
+    await engine.dispose()
