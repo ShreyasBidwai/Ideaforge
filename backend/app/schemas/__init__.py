@@ -22,6 +22,13 @@ from app.schemas.pain_point import (
     PainPointResponse,
     DiscoverRequest,
 )
+from app.schemas.evaluation import (
+    RubricCriterion,
+    Disqualifier,
+    RubricSchema,
+    RubricResponse,
+    EvaluationResponse,
+)
 
 __all__ = [
     "UserCreate",
@@ -40,4 +47,9 @@ __all__ = [
     "PainPointSchema",
     "PainPointResponse",
     "DiscoverRequest",
+    "RubricCriterion",
+    "Disqualifier",
+    "RubricSchema",
+    "RubricResponse",
+    "EvaluationResponse",
 ]

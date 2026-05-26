@@ -256,3 +256,46 @@ async def test_session_status_evaluation(client, auth_headers, mock_gemini):
     
     session_check = await client.get(f"/api/v1/sessions/{sid}", headers=auth_headers)
     assert session_check.json()["status"] == "evaluation"
+
+# TEST 13: Update solution tech stack (PATCH)
+async def test_update_solution_tech_stack(client, auth_headers, mock_gemini):
+    """PATCH /api/v1/solutions/{id} should update the tech stack successfully"""
+    session = await client.post("/api/v1/sessions", json={"industry": "Logistics", "location": "India"}, headers=auth_headers)
+    sid = session.json()["id"]
+    mock_gemini.return_value = json.dumps({"pain_points": [
+        {"name": "P", "description": "D", "severity": 5, "affected_stakeholders": ["U"], "evidence": "E"}
+    ]})
+    await client.post(f"/api/v1/sessions/{sid}/discover", headers=auth_headers)
+    mock_gemini.return_value = json.dumps({"problem_statements": [
+        {"title": "T", "description": "D", "target_user": "U", "core_pain": "P", "market_context": "M",
+         "severity": 3, "feasibility": 3, "market_size": 3, "uniqueness": 3}
+    ]})
+    problems = await client.post(f"/api/v1/sessions/{sid}/generate-problems", headers=auth_headers)
+    pid = problems.json()[0]["id"]
+    await client.post(f"/api/v1/problem-statements/{pid}/select", headers=auth_headers)
+    mock_gemini.return_value = json.dumps(MOCK_SOLUTIONS)
+    solutions = await client.post(f"/api/v1/problem-statements/{pid}/generate-solutions", headers=auth_headers)
+    sol_id = solutions.json()[0]["id"]
+    
+    new_stack = ["FastAPI", "Vue.js", "MongoDB"]
+    response = await client.patch(f"/api/v1/solutions/{sol_id}", json={"tech_stack": new_stack}, headers=auth_headers)
+    assert response.status_code == 200
+    assert response.json()["tech_stack"] == new_stack
+
+# TEST 14: PATCH solution returns 404 for nonexistent ID
+async def test_update_solution_nonexistent(client, auth_headers):
+    """PATCH /api/v1/solutions/{id} should return 404 for non-existent ID"""
+    from uuid import uuid4
+    random_uuid = str(uuid4())
+    response = await client.patch(f"/api/v1/solutions/{random_uuid}", json={"tech_stack": ["React"]}, headers=auth_headers)
+    assert response.status_code == 404
+
+# TEST 15: PATCH solution requires authentication
+async def test_update_solution_unauthorized(client):
+    """PATCH /api/v1/solutions/{id} should return 401 if unauthorized"""
+    from uuid import uuid4
+    random_uuid = str(uuid4())
+    response = await client.patch(f"/api/v1/solutions/{random_uuid}", json={"tech_stack": ["React"]})
+    assert response.status_code == 401
+
+
