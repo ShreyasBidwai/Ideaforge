@@ -582,6 +582,277 @@ class EvaluationService:
 
         return {"scores": scores_out}
 
+    async def run_devils_advocate(self, problem_id: UUID, user_id: UUID) -> dict:
+        """
+        Step 6: Devil's Advocate Attack
+        1. Verify scoring has been completed
+        2. Get surviving solutions with their scores
+        3. Call AI for strongest attack per solution
+        4. Store attack_summary and attack_survives in Evaluation records
+        5. Return attacks
+        """
+        problem = await self._get_problem_and_validate(problem_id, user_id)
+        solutions_list = await self._get_solutions(problem_id)
+
+        # Get evaluations
+        evaluations_result = await self.db.execute(
+            select(Evaluation).where(Evaluation.solution_id.in_([s.id for s in solutions_list]))
+        )
+        evaluations_list = list(evaluations_result.scalars().all())
+
+        if not any(e.status in ("scored", "completed") for e in evaluations_list):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Scoring has not been completed. Please run scoring first."
+            )
+
+        surviving_solutions = [s for s in solutions_list if s.status != "disqualified"]
+        
+        scores_data = []
+        for e in evaluations_list:
+            if e.scores and e.status in ("scored", "completed"):
+                # Find solution title
+                sol_title = next(s.title for s in solutions_list if s.id == e.solution_id)
+                scores_data.append({
+                    "solution_title": sol_title,
+                    "criterion_scores": e.scores,
+                    "weighted_avg": e.weighted_avg,
+                    "min_score": e.min_score
+                })
+
+        solutions_data = [
+            {
+                "title": s.title,
+                "description": s.description,
+                "mechanism": s.mechanism,
+                "tech_stack": s.tech_stack,
+                "target_user": s.target_user,
+                "revenue_model": s.revenue_model
+            } for s in surviving_solutions
+        ]
+
+        from app.ai.prompts.evaluation.devils_advocate import build_devils_advocate_prompt
+        system_prompt, user_prompt = build_devils_advocate_prompt(solutions_data, scores_data)
+
+        # Response schema
+        response_schema = {
+            "type": "OBJECT",
+            "properties": {
+                "attacks": {
+                    "type": "ARRAY",
+                    "items": {
+                        "type": "OBJECT",
+                        "properties": {
+                            "solution_title": {"type": "STRING"},
+                            "attack": {"type": "STRING"},
+                            "severity": {"type": "STRING"},
+                            "survives": {"type": "BOOLEAN"},
+                            "survival_reasoning": {"type": "STRING"}
+                        },
+                        "required": ["solution_title", "attack", "severity", "survives", "survival_reasoning"]
+                    }
+                }
+            },
+            "required": ["attacks"]
+        }
+
+        try:
+            raw_response = await self.ai.generate(
+                prompt=user_prompt,
+                system_prompt=system_prompt,
+                response_schema=response_schema,
+                temperature=0.15
+            )
+            data = json.loads(raw_response)
+        except Exception as e:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=f"AI generation failed for Devil's Advocate: {str(e)}"
+            )
+
+        attacks_list = data.get("attacks", [])
+        attack_map = {a["solution_title"]: a for a in attacks_list}
+
+        for solution in surviving_solutions:
+            res = attack_map.get(solution.title)
+            eval_rec = next((e for e in evaluations_list if e.solution_id == solution.id), None)
+            if res and eval_rec:
+                eval_rec.attack_summary = res["attack"]
+                eval_rec.attack_survives = res["survives"]
+                eval_rec.status = "attacked"
+
+        await self.db.commit()
+        return {"attacks": attacks_list}
+
+    async def run_ach_analysis(self, problem_id: UUID, user_id: UUID) -> dict:
+        """
+        Step 7: ACH Inconsistency Count
+        1. Verify devil's advocate has been run (or skip if POC/MVP maturity)
+        2. Get solutions, problem, scores, attacks
+        3. Call AI for inconsistency analysis
+        4. Store inconsistencies and inconsistency_count in Evaluation records
+        5. Return analysis
+        """
+        problem = await self._get_problem_and_validate(problem_id, user_id)
+        solutions_list = await self._get_solutions(problem_id)
+
+        # Get evaluations
+        evaluations_result = await self.db.execute(
+            select(Evaluation).where(Evaluation.solution_id.in_([s.id for s in solutions_list]))
+        )
+        evaluations_list = list(evaluations_result.scalars().all())
+
+        session = problem.session
+        from app.core.maturity import get_maturity_config, MaturityLevel
+        maturity_config = get_maturity_config(MaturityLevel(session.maturity_level))
+
+        # Check if devil's advocate has been run
+        is_attack_run = any(
+            e.status in ("attacked", "completed") or e.attack_summary is not None
+            for e in evaluations_list
+        )
+        if "devils_advocate" in maturity_config.evaluation_steps and not is_attack_run:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Devil's Advocate attack has not been run yet. Please run the attack first."
+            )
+
+        surviving_solutions = [s for s in solutions_list if s.status != "disqualified"]
+        
+        scores_data = []
+        for e in evaluations_list:
+            if e.scores:
+                sol_title = next(s.title for s in solutions_list if s.id == e.solution_id)
+                scores_data.append({
+                    "solution_title": sol_title,
+                    "criterion_scores": e.scores,
+                    "weighted_avg": e.weighted_avg,
+                    "min_score": e.min_score
+                })
+
+        solutions_data = [
+            {
+                "title": s.title,
+                "description": s.description,
+                "mechanism": s.mechanism,
+                "tech_stack": s.tech_stack,
+                "target_user": s.target_user,
+                "revenue_model": s.revenue_model
+            } for s in surviving_solutions
+        ]
+
+        problem_dict = {
+            "title": problem.title,
+            "description": problem.description,
+            "target_user": problem.target_user,
+            "core_pain": problem.core_pain,
+            "market_context": problem.market_context
+        }
+
+        from app.ai.prompts.evaluation.ach import build_ach_prompt
+        system_prompt, user_prompt = build_ach_prompt(solutions_data, problem_dict, scores_data)
+
+        # Response schema
+        response_schema = {
+            "type": "OBJECT",
+            "properties": {
+                "analysis": {
+                    "type": "ARRAY",
+                    "items": {
+                        "type": "OBJECT",
+                        "properties": {
+                            "solution_title": {"type": "STRING"},
+                            "inconsistencies": {
+                                "type": "ARRAY",
+                                "items": {"type": "STRING"}
+                            },
+                            "count": {"type": "INTEGER"}
+                        },
+                        "required": ["solution_title", "inconsistencies", "count"]
+                    }
+                }
+            },
+            "required": ["analysis"]
+        }
+
+        try:
+            raw_response = await self.ai.generate(
+                prompt=user_prompt,
+                system_prompt=system_prompt,
+                response_schema=response_schema,
+                temperature=0.1
+            )
+            data = json.loads(raw_response)
+        except Exception as e:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=f"AI generation failed for ACH analysis: {str(e)}"
+            )
+
+        analysis_list = data.get("analysis", [])
+        analysis_map = {a["solution_title"]: a for a in analysis_list}
+
+        for solution in surviving_solutions:
+            res = analysis_map.get(solution.title)
+            eval_rec = next((e for e in evaluations_list if e.solution_id == solution.id), None)
+            if res and eval_rec:
+                eval_rec.inconsistencies = res["inconsistencies"]
+                eval_rec.inconsistency_count = res["count"]
+                eval_rec.status = "completed"
+
+        await self.db.commit()
+        return {"analysis": analysis_list}
+
+    async def get_attacks(self, problem_id: UUID, user_id: UUID) -> dict:
+        """
+        Fetch the saved attacks for surviving solutions.
+        """
+        await self._get_problem_and_validate(problem_id, user_id)
+        solutions_list = await self._get_solutions(problem_id)
+
+        evaluations_result = await self.db.execute(
+            select(Evaluation)
+            .options(joinedload(Evaluation.solution))
+            .where(Evaluation.solution_id.in_([s.id for s in solutions_list]))
+        )
+        evaluations_list = list(evaluations_result.scalars().all())
+
+        attacks_out = []
+        for e in evaluations_list:
+            if e.attack_summary is not None:
+                attacks_out.append({
+                    "solution_title": e.solution.title,
+                    "attack": e.attack_summary,
+                    "survives": e.attack_survives
+                })
+
+        return {"attacks": attacks_out}
+
+    async def get_ach(self, problem_id: UUID, user_id: UUID) -> dict:
+        """
+        Fetch the ACH results for surviving solutions.
+        """
+        await self._get_problem_and_validate(problem_id, user_id)
+        solutions_list = await self._get_solutions(problem_id)
+
+        evaluations_result = await self.db.execute(
+            select(Evaluation)
+            .options(joinedload(Evaluation.solution))
+            .where(Evaluation.solution_id.in_([s.id for s in solutions_list]))
+        )
+        evaluations_list = list(evaluations_result.scalars().all())
+
+        analysis_out = []
+        for e in evaluations_list:
+            if e.inconsistencies is not None:
+                analysis_out.append({
+                    "solution_title": e.solution.title,
+                    "inconsistencies": e.inconsistencies,
+                    "count": e.inconsistency_count
+                })
+
+        return {"analysis": analysis_out}
+
     @staticmethod
     def compute_weighted_avg(scores: list[dict], criteria: list[dict]) -> float:
         """Compute weighted average from scores and criteria weights"""
