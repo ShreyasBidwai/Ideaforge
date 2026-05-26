@@ -10,6 +10,7 @@ from app.schemas.session import (
     SessionUpdate,
     SessionResponse,
     MaturityLevelInfo,
+    SessionListResponse,
 )
 from app.schemas.tech_stack import (
     TechStackRegistry,
@@ -27,6 +28,7 @@ __all__ = [
     "SessionUpdate",
     "SessionResponse",
     "MaturityLevelInfo",
+    "SessionListResponse",
     "TechStackRegistry",
     "TechStackSearchResult",
     "TechStackPreference",

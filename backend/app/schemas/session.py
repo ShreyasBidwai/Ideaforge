@@ -17,10 +17,12 @@ class SessionCreate(BaseModel):
     industry: str
     location: str
     maturity_level: MaturityLevel = MaturityLevel.MVP
+    tech_stack_preferences: Optional[List[str]] = None
 
 class SessionUpdate(BaseModel):
     maturity_level: Optional[MaturityLevel] = None
     tech_stack_preferences: Optional[List[str]] = None
+    status: Optional[str] = None
 
 class SessionResponse(BaseModel):
     id: UUID
@@ -36,3 +38,9 @@ class SessionResponse(BaseModel):
     maturity_config: MaturityConfig
 
     model_config = ConfigDict(from_attributes=True)
+
+class SessionListResponse(BaseModel):
+    items: List[SessionResponse]
+    total: int
+    page: int
+    per_page: int

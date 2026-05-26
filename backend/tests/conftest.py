@@ -80,3 +80,47 @@ async def cleanup_db():
         await session.commit()
 
     await engine.dispose()
+
+@pytest.fixture
+async def auth_headers(client):
+    # Register user A
+    await client.post(
+        "/api/v1/auth/register",
+        json={
+            "email": "usera@example.com",
+            "password": "StrongPass123!",
+            "full_name": "User A"
+        }
+    )
+    # Login user A
+    login = await client.post(
+        "/api/v1/auth/login",
+        json={
+            "email": "usera@example.com",
+            "password": "StrongPass123!"
+        }
+    )
+    token = login.json()["access_token"]
+    return {"Authorization": f"Bearer {token}"}
+
+@pytest.fixture
+async def other_auth_headers(client):
+    # Register user B
+    await client.post(
+        "/api/v1/auth/register",
+        json={
+            "email": "userb@example.com",
+            "password": "StrongPass123!",
+            "full_name": "User B"
+        }
+    )
+    # Login user B
+    login = await client.post(
+        "/api/v1/auth/login",
+        json={
+            "email": "userb@example.com",
+            "password": "StrongPass123!"
+        }
+    )
+    token = login.json()["access_token"]
+    return {"Authorization": f"Bearer {token}"}

@@ -1,27 +1,5 @@
 import pytest
 
-@pytest.fixture
-async def auth_headers(client):
-    # Register a new user
-    await client.post(
-        "/api/v1/auth/register",
-        json={
-            "email": "techstack@example.com",
-            "password": "StrongPass123!",
-            "full_name": "Tech Stack User"
-        }
-    )
-    # Login to retrieve token
-    login_response = await client.post(
-        "/api/v1/auth/login",
-        json={
-            "email": "techstack@example.com",
-            "password": "StrongPass123!"
-        }
-    )
-    token = login_response.json()["access_token"]
-    return {"Authorization": f"Bearer {token}"}
-
 # TEST 1: Registry contains all major categories
 def test_registry_categories():
     """Registry should have frontend, backend, database, infrastructure, ai_ml"""
