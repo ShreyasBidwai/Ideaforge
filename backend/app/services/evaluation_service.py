@@ -325,3 +325,273 @@ class EvaluationService:
             "is_locked": True,
             "problem_id": problem_id
         }
+
+    async def run_disqualifier_gate(self, problem_id: UUID, user_id: UUID) -> dict:
+        """
+        Step 4: Disqualifier Gate
+        1. Verify rubric is locked
+        2. Get all solutions for the problem
+        3. Get disqualifiers from rubric
+        4. Call AI to evaluate each solution against each disqualifier
+        5. Mark failed solutions as status='disqualified'
+        6. If fewer than 2 survive, return error indicating regeneration needed
+        7. Return results: which passed, which failed and why
+        """
+        problem = await self._get_problem_and_validate(problem_id, user_id)
+        solutions_list = await self._get_solutions(problem_id)
+
+        # Get evaluations
+        evaluations_result = await self.db.execute(
+            select(Evaluation).where(Evaluation.solution_id.in_([s.id for s in solutions_list]))
+        )
+        evaluations_list = list(evaluations_result.scalars().all())
+
+        if not evaluations_list or not any(e.status == "rubric_locked" for e in evaluations_list):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Rubric is not locked. Please lock the rubric first."
+            )
+
+        rubric = evaluations_list[0].rubric
+        disqualifiers = rubric.get("disqualifiers", [])
+
+        # Format solutions for AI
+        solutions_data = [
+            {
+                "title": s.title,
+                "description": s.description,
+                "mechanism": s.mechanism,
+                "tech_stack": s.tech_stack,
+                "target_user": s.target_user,
+                "revenue_model": s.revenue_model
+            } for s in solutions_list
+        ]
+
+        from app.ai.prompts.evaluation.disqualify import build_disqualifier_prompt
+        system_prompt, user_prompt = build_disqualifier_prompt(solutions_data, disqualifiers)
+
+        # Response schema
+        response_schema = {
+            "type": "OBJECT",
+            "properties": {
+                "results": {
+                    "type": "ARRAY",
+                    "items": {
+                        "type": "OBJECT",
+                        "properties": {
+                            "solution_title": {"type": "STRING"},
+                            "passed": {"type": "BOOLEAN"},
+                            "failed_disqualifiers": {
+                                "type": "ARRAY",
+                                "items": {"type": "STRING"}
+                            },
+                            "reasons": {
+                                "type": "ARRAY",
+                                "items": {"type": "STRING"}
+                            }
+                        },
+                        "required": ["solution_title", "passed", "failed_disqualifiers", "reasons"]
+                    }
+                }
+            },
+            "required": ["results"]
+        }
+
+        try:
+            raw_response = await self.ai.generate(
+                prompt=user_prompt,
+                system_prompt=system_prompt,
+                response_schema=response_schema,
+                temperature=0.1
+            )
+            data = json.loads(raw_response)
+        except Exception as e:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=f"AI generation failed for disqualifier gate: {str(e)}"
+            )
+
+        results = data.get("results", [])
+        result_map = {r["solution_title"]: r for r in results}
+
+        survivors_count = 0
+        for solution in solutions_list:
+            res = result_map.get(solution.title)
+            eval_rec = next((e for e in evaluations_list if e.solution_id == solution.id), None)
+            if res:
+                if not res["passed"]:
+                    solution.status = "disqualified"
+                    if eval_rec:
+                        eval_rec.status = "disqualified"
+                else:
+                    solution.status = "candidate"
+                    if eval_rec:
+                        eval_rec.status = "disqualified_passed"
+                    survivors_count += 1
+            else:
+                if eval_rec:
+                    eval_rec.status = "disqualified_passed"
+                survivors_count += 1
+
+        if survivors_count < 2:
+            await self.db.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Fewer than 2 solution candidates passed the disqualifier gate. Regeneration of solution candidates is needed."
+            )
+
+        await self.db.commit()
+        return {"results": results}
+
+    async def run_scoring(self, problem_id: UUID, user_id: UUID) -> dict:
+        """
+        Step 5: Score Survivors
+        1. Verify disqualifier gate has been run
+        2. Get surviving solutions (status != 'disqualified')
+        3. Get locked rubric criteria and weights
+        4. Call AI to score each survivor on each criterion
+        5. Compute weighted_avg = sum(score * weight) / sum(weights)
+        6. Compute min_score = minimum score across all criteria
+        7. Store scores in Evaluation records
+        8. Return scoring matrix
+        """
+        problem = await self._get_problem_and_validate(problem_id, user_id)
+        solutions_list = await self._get_solutions(problem_id)
+
+        # Get evaluations
+        evaluations_result = await self.db.execute(
+            select(Evaluation).where(Evaluation.solution_id.in_([s.id for s in solutions_list]))
+        )
+        evaluations_list = list(evaluations_result.scalars().all())
+
+        # Check if disqualifier gate has been run
+        is_disqualifier_run = any(
+            e.status in ("disqualified_passed", "disqualified", "scored", "completed")
+            for e in evaluations_list
+        )
+        if not is_disqualifier_run:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Disqualifier gate has not been run yet. Please run the disqualifier gate first."
+            )
+
+        surviving_solutions = [s for s in solutions_list if s.status != "disqualified"]
+        rubric = evaluations_list[0].rubric
+        criteria = rubric.get("criteria", [])
+
+        # Format survivors for AI
+        survivors_data = [
+            {
+                "title": s.title,
+                "description": s.description,
+                "mechanism": s.mechanism,
+                "tech_stack": s.tech_stack,
+                "target_user": s.target_user,
+                "revenue_model": s.revenue_model
+            } for s in surviving_solutions
+        ]
+
+        from app.ai.prompts.evaluation.scoring import build_scoring_prompt
+        system_prompt, user_prompt = build_scoring_prompt(survivors_data, rubric)
+
+        # Response schema
+        response_schema = {
+            "type": "OBJECT",
+            "properties": {
+                "scores": {
+                    "type": "ARRAY",
+                    "items": {
+                        "type": "OBJECT",
+                        "properties": {
+                            "solution_title": {"type": "STRING"},
+                            "criterion_scores": {
+                                "type": "ARRAY",
+                                "items": {
+                                    "type": "OBJECT",
+                                    "properties": {
+                                        "criterion": {"type": "STRING"},
+                                        "score": {"type": "INTEGER"},
+                                        "justification": {"type": "STRING"}
+                                    },
+                                    "required": ["criterion", "score", "justification"]
+                                }
+                            }
+                        },
+                        "required": ["solution_title", "criterion_scores"]
+                    }
+                }
+            },
+            "required": ["scores"]
+        }
+
+        try:
+            raw_response = await self.ai.generate(
+                prompt=user_prompt,
+                system_prompt=system_prompt,
+                response_schema=response_schema,
+                temperature=0.1
+            )
+            data = json.loads(raw_response)
+        except Exception as e:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=f"AI generation failed for scoring: {str(e)}"
+            )
+
+        scores_list = data.get("scores", [])
+        for s_score in scores_list:
+            s_score["weighted_avg"] = self.compute_weighted_avg(s_score["criterion_scores"], criteria)
+            s_score["min_score"] = self.compute_min_score(s_score["criterion_scores"])
+
+        score_map = {s["solution_title"]: s for s in scores_list}
+        for solution in surviving_solutions:
+            res = score_map.get(solution.title)
+            eval_rec = next((e for e in evaluations_list if e.solution_id == solution.id), None)
+            if res and eval_rec:
+                eval_rec.scores = res["criterion_scores"]
+                eval_rec.weighted_avg = res["weighted_avg"]
+                eval_rec.min_score = res["min_score"]
+                eval_rec.status = "scored"
+
+        await self.db.commit()
+        return {"scores": scores_list}
+
+    async def get_scores(self, problem_id: UUID, user_id: UUID) -> dict:
+        """
+        Fetch the saved scores for surviving solutions.
+        """
+        await self._get_problem_and_validate(problem_id, user_id)
+        solutions_list = await self._get_solutions(problem_id)
+
+        evaluations_result = await self.db.execute(
+            select(Evaluation)
+            .options(joinedload(Evaluation.solution))
+            .where(Evaluation.solution_id.in_([s.id for s in solutions_list]))
+        )
+        evaluations_list = list(evaluations_result.scalars().all())
+
+        scores_out = []
+        for e in evaluations_list:
+            if e.scores is not None:
+                scores_out.append({
+                    "solution_title": e.solution.title,
+                    "criterion_scores": e.scores,
+                    "weighted_avg": e.weighted_avg,
+                    "min_score": e.min_score
+                })
+
+        return {"scores": scores_out}
+
+    @staticmethod
+    def compute_weighted_avg(scores: list[dict], criteria: list[dict]) -> float:
+        """Compute weighted average from scores and criteria weights"""
+        weight_map = {c["name"]: c["weight"] for c in criteria}
+        total_weighted = sum(s["score"] * weight_map.get(s["criterion"], 1) for s in scores)
+        total_weight = sum(weight_map.get(s["criterion"], 1) for s in scores)
+        return round(total_weighted / total_weight, 2) if total_weight > 0 else 0
+
+    @staticmethod
+    def compute_min_score(scores: list[dict]) -> float:
+        """Find the minimum score across all criteria"""
+        return min(s["score"] for s in scores) if scores else 0
+

@@ -48,3 +48,33 @@ async def lock_rubric(
 ):
     service = EvaluationService(None, db)
     return await service.lock_rubric(problem_id, current_user.id)
+
+@router.post("/problem-statements/{problem_id}/evaluation/disqualify", response_model=dict)
+async def disqualify_gate(
+    problem_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+    ai_provider: AIProvider = Depends(get_ai_provider)
+):
+    service = EvaluationService(ai_provider, db)
+    return await service.run_disqualifier_gate(problem_id, current_user.id)
+
+@router.post("/problem-statements/{problem_id}/evaluation/score", response_model=dict)
+async def score_survivors(
+    problem_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+    ai_provider: AIProvider = Depends(get_ai_provider)
+):
+    service = EvaluationService(ai_provider, db)
+    return await service.run_scoring(problem_id, current_user.id)
+
+@router.get("/problem-statements/{problem_id}/evaluation/scores", response_model=dict)
+async def get_scores(
+    problem_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    service = EvaluationService(None, db)
+    return await service.get_scores(problem_id, current_user.id)
+
