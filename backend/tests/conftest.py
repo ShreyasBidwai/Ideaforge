@@ -130,3 +130,39 @@ def mock_gemini():
     from unittest.mock import AsyncMock, patch
     with patch("app.ai.provider.GeminiProvider.generate", new_callable=AsyncMock) as mock:
         yield mock
+
+@pytest.fixture
+async def cache_service():
+    from app.core.cache import CacheService
+    from app.core.config import settings
+    
+    cs = CacheService(settings.REDIS_URL)
+    await cs.connect()
+    
+    if cs.redis is None:
+        class MockRedis:
+            def __init__(self):
+                self.store = {}
+            async def ping(self):
+                return True
+            async def get(self, key):
+                return self.store.get(key)
+            async def set(self, key, value, ex=None):
+                self.store[key] = value
+            async def delete(self, key):
+                self.store.pop(key, None)
+            async def exists(self, key):
+                return key in self.store
+            async def close(self):
+                pass
+        cs.redis = MockRedis()
+    else:
+        try:
+            await cs.redis.flushdb()
+        except Exception:
+            pass
+
+    app.state.cache = cs
+    yield cs
+    await cs.close()
+

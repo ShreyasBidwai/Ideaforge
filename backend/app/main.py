@@ -5,6 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.v1.router import router as api_v1_router
 from app.core.config import settings
+from app.core.cache import CacheService
 
 # Configure logging
 logging.basicConfig(
@@ -18,9 +19,13 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     # Run startup events
     logger.info("Initializing IdeaForge Backend...")
+    cache_service = CacheService(settings.REDIS_URL)
+    await cache_service.connect()
+    app.state.cache = cache_service
     yield
     # Run shutdown events
     logger.info("Shutting down IdeaForge Backend...")
+    await cache_service.close()
 
 
 app = FastAPI(
