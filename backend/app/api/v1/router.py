@@ -7,6 +7,7 @@ from app.api.v1.tech_stacks import router as tech_stacks_router
 from app.api.v1.sessions import router as sessions_router
 from app.api.v1.pain_points import router as pain_points_router
 from app.api.v1.problem_statements import router as problem_statements_router
+from app.api.v1.solutions import router as solutions_router
 
 router = APIRouter()
 
@@ -17,4 +18,6 @@ router.include_router(tech_stacks_router, prefix="/tech-stacks", tags=["tech-sta
 router.include_router(sessions_router, prefix="/sessions", tags=["sessions"])
 router.include_router(pain_points_router, tags=["pain-points"])
 router.include_router(problem_statements_router, tags=["problem-statements"])
+router.include_router(solutions_router, tags=["solutions"])
+
 
