@@ -24,6 +24,8 @@ class Session(Base):
     industry = Column(String(255), nullable=False)
     location = Column(String(255), nullable=False)
     pain_points = Column(JSON, nullable=True)
+    maturity_level = Column(String(50), default="mvp", nullable=False)
+    tech_stack_preferences = Column(JSON, nullable=True)
     status = Column(String(50), default="discovery", nullable=False)
     created_at = Column(
         DateTime(timezone=True),
@@ -44,3 +46,8 @@ class Session(Base):
         back_populates="session",
         cascade="all, delete-orphan",
     )
+
+    @property
+    def maturity_config(self):
+        from app.core.maturity import get_maturity_config, MaturityLevel
+        return get_maturity_config(MaturityLevel(self.maturity_level))
