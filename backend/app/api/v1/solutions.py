@@ -109,3 +109,13 @@ async def update_solution(
     update_dict = data.model_dump(exclude_unset=True)
     solution = await service.update_solution(id, current_user.id, update_dict)
     return solution
+
+@router.post("/solutions/{id}/revoke", response_model=SolutionResponse)
+async def revoke_solution(
+    id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    service = SolutionService(None, db)
+    solution = await service.update_solution_status(id, current_user.id, "evaluated")
+    return solution
