@@ -247,7 +247,9 @@ const SolutionWorkspace: React.FC = () => {
                 className="w-full md:w-auto px-8 py-4 bg-blue-600 hover:bg-blue-500 text-white font-semibold rounded-xl shadow-lg hover:shadow-blue-500/25 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
               >
                 <Play className="w-5 h-5 fill-current" />
-                <span>Run Evaluation Protocol</span>
+                <span>
+                  {session && session.status !== "draft" ? "View Evaluation" : "Run Evaluation"}
+                </span>
               </button>
             </div>
             {solutionsCount < 2 && (
