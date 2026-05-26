@@ -22,44 +22,54 @@ const Login: React.FC = () => {
   const [touched, setTouched] = useState<{ email?: boolean; password?: boolean }>({});
 
   const validateField = (field: "email" | "password", value: string) => {
-    const newErrors = { ...errors };
-    if (field === "email") {
-      if (!value) {
-        newErrors.email = "Email address is required";
-      } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) {
-        newErrors.email = "Please enter a valid email address";
-      } else {
-        delete newErrors.email;
+    setErrors((prev) => {
+      const next = { ...prev };
+      if (field === "email") {
+        if (!value) {
+          next.email = "Email address is required";
+        } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) {
+          next.email = "Please enter a valid email address";
+        } else {
+          delete next.email;
+        }
       }
-    }
-    if (field === "password") {
-      if (!value) {
-        newErrors.password = "Password is required";
-      } else if (value.length < 8) {
-        newErrors.password = "Password must be at least 8 characters long";
-      } else {
-        delete newErrors.password;
+      if (field === "password") {
+        if (!value) {
+          next.password = "Password is required";
+        } else if (value.length < 8) {
+          next.password = "Password must be at least 8 characters long";
+        } else {
+          delete next.password;
+        }
       }
-    }
-    setErrors(newErrors);
+      return next;
+    });
   };
 
   const handleBlur = (field: "email" | "password") => {
-    setTouched({ ...touched, [field]: true });
-    if (field === "email") validateField("email", email);
-    if (field === "password") validateField("password", password);
+    setTouched((prev) => ({ ...prev, [field]: true }));
+    validateField(field, field === "email" ? email : password);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setTouched({ email: true, password: true });
     
-    const hasEmailError = !email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
-    const hasPasswordError = !password || password.length < 8;
+    const newErrors: { email?: string; password?: string } = {};
+    if (!email) {
+      newErrors.email = "Email address is required";
+    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      newErrors.email = "Please enter a valid email address";
+    }
 
-    if (hasEmailError || hasPasswordError) {
-      validateField("email", email);
-      validateField("password", password);
+    if (!password) {
+      newErrors.password = "Password is required";
+    } else if (password.length < 8) {
+      newErrors.password = "Password must be at least 8 characters long";
+    }
+
+    if (Object.keys(newErrors).length > 0) {
+      setErrors(newErrors);
       return;
     }
 
@@ -143,6 +153,7 @@ const Login: React.FC = () => {
           {/* Form */}
           <form onSubmit={handleSubmit} className="space-y-5">
             <Input
+              id="email"
               label="Email address"
               type="email"
               placeholder="name@company.com"
@@ -155,6 +166,7 @@ const Login: React.FC = () => {
 
             <div className="relative">
               <Input
+                id="password"
                 label="Password"
                 type={showPassword ? "text" : "password"}
                 placeholder="••••••••"
@@ -165,6 +177,7 @@ const Login: React.FC = () => {
                 error={touched.password ? errors.password : undefined}
               />
               <button
+                data-testid="password-toggle"
                 type="button"
                 onClick={() => setShowPassword(!showPassword)}
                 className="absolute right-3.5 top-[38px] text-slate-400 hover:text-white transition-colors"

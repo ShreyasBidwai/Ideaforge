@@ -9,9 +9,10 @@ interface InputProps extends React.InputHTMLAttributes<HTMLInputElement> {
 
 export const Input = forwardRef<HTMLInputElement, InputProps>(
   ({ label, icon: Icon, error, type = "text", className = "", ...props }, ref) => {
+    const inputId = props.id || label.toLowerCase().replace(/\s+/g, "-");
     return (
       <div className="w-full text-left space-y-1.5">
-        <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400">
+        <label htmlFor={inputId} className="block text-xs font-semibold uppercase tracking-wider text-slate-400">
           {label}
         </label>
         <div className="relative">
@@ -22,6 +23,7 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
           )}
           <input
             ref={ref}
+            id={inputId}
             type={type}
             className={`
               w-full h-12 bg-slate-800/50 border rounded-xl text-white placeholder-slate-500 text-sm transition-all duration-200
@@ -44,3 +46,5 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
 );
 
 Input.displayName = "Input";
+
+export default Input;

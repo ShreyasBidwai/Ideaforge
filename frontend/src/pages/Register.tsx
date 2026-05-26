@@ -55,54 +55,55 @@ const Register: React.FC = () => {
     field: "fullName" | "email" | "password" | "confirmPassword",
     value: string
   ) => {
-    const newErrors = { ...errors };
-    if (field === "fullName") {
-      if (!value.trim()) {
-        newErrors.fullName = "Full name is required";
-      } else {
-        delete newErrors.fullName;
+    setErrors((prev) => {
+      const next = { ...prev };
+      if (field === "fullName") {
+        if (!value.trim()) {
+          next.fullName = "Full name is required";
+        } else {
+          delete next.fullName;
+        }
       }
-    }
-    if (field === "email") {
-      if (!value) {
-        newErrors.email = "Email address is required";
-      } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) {
-        newErrors.email = "Please enter a valid email address";
-      } else {
-        delete newErrors.email;
+      if (field === "email") {
+        if (!value) {
+          next.email = "Email address is required";
+        } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) {
+          next.email = "Please enter a valid email address";
+        } else {
+          delete next.email;
+        }
       }
-    }
-    if (field === "password") {
-      if (!value) {
-        newErrors.password = "Password is required";
-      } else if (value.length < 8) {
-        newErrors.password = "Password must be at least 8 characters long";
-      } else {
-        delete newErrors.password;
+      if (field === "password") {
+        if (!value) {
+          next.password = "Password is required";
+        } else if (value.length < 8) {
+          next.password = "Password must be at least 8 characters long";
+        } else {
+          delete next.password;
+        }
+        if (confirmPassword && value !== confirmPassword) {
+          next.confirmPassword = "Passwords do not match";
+        } else if (confirmPassword && value === confirmPassword) {
+          delete next.confirmPassword;
+        }
       }
-      // Re-validate confirm password if it is set
-      if (confirmPassword && value !== confirmPassword) {
-        newErrors.confirmPassword = "Passwords do not match";
-      } else if (confirmPassword && value === confirmPassword) {
-        delete newErrors.confirmPassword;
+      if (field === "confirmPassword") {
+        if (!value) {
+          next.confirmPassword = "Confirm password is required";
+        } else if (value !== password) {
+          next.confirmPassword = "Passwords do not match";
+        } else {
+          delete next.confirmPassword;
+        }
       }
-    }
-    if (field === "confirmPassword") {
-      if (!value) {
-        newErrors.confirmPassword = "Confirm password is required";
-      } else if (value !== password) {
-        newErrors.confirmPassword = "Passwords do not match";
-      } else {
-        delete newErrors.confirmPassword;
-      }
-    }
-    setErrors(newErrors);
+      return next;
+    });
   };
 
   const handleBlur = (
     field: "fullName" | "email" | "password" | "confirmPassword"
   ) => {
-    setTouched({ ...touched, [field]: true });
+    setTouched((prev) => ({ ...prev, [field]: true }));
     validateField(field, field === "fullName" ? fullName : field === "email" ? email : field === "password" ? password : confirmPassword);
   };
 
@@ -110,16 +111,37 @@ const Register: React.FC = () => {
     e.preventDefault();
     setTouched({ fullName: true, email: true, password: true, confirmPassword: true });
     
-    const hasNameError = !fullName.trim();
-    const hasEmailError = !email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
-    const hasPasswordError = !password || password.length < 8;
-    const hasConfirmError = !confirmPassword || confirmPassword !== password;
+    const newErrors: {
+      fullName?: string;
+      email?: string;
+      password?: string;
+      confirmPassword?: string;
+    } = {};
 
-    if (hasNameError || hasEmailError || hasPasswordError || hasConfirmError) {
-      validateField("fullName", fullName);
-      validateField("email", email);
-      validateField("password", password);
-      validateField("confirmPassword", confirmPassword);
+    if (!fullName.trim()) {
+      newErrors.fullName = "Full name is required";
+    }
+
+    if (!email) {
+      newErrors.email = "Email address is required";
+    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      newErrors.email = "Please enter a valid email address";
+    }
+
+    if (!password) {
+      newErrors.password = "Password is required";
+    } else if (password.length < 8) {
+      newErrors.password = "Password must be at least 8 characters long";
+    }
+
+    if (!confirmPassword) {
+      newErrors.confirmPassword = "Confirm password is required";
+    } else if (confirmPassword !== password) {
+      newErrors.confirmPassword = "Passwords do not match";
+    }
+
+    if (Object.keys(newErrors).length > 0) {
+      setErrors(newErrors);
       return;
     }
 
@@ -207,6 +229,7 @@ const Register: React.FC = () => {
           {/* Form */}
           <form onSubmit={handleSubmit} className="space-y-4">
             <Input
+              id="full-name"
               label="Full Name"
               type="text"
               placeholder="Alex Johnson"
@@ -218,6 +241,7 @@ const Register: React.FC = () => {
             />
 
             <Input
+              id="email"
               label="Email address"
               type="email"
               placeholder="name@company.com"
@@ -231,6 +255,7 @@ const Register: React.FC = () => {
             <div className="space-y-1.5">
               <div className="relative">
                 <Input
+                  id="password"
                   label="Password"
                   type={showPassword ? "text" : "password"}
                   placeholder="••••••••"
@@ -241,6 +266,7 @@ const Register: React.FC = () => {
                   error={touched.password ? errors.password : undefined}
                 />
                 <button
+                  data-testid="password-toggle"
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
                   className="absolute right-3.5 top-[38px] text-slate-400 hover:text-white transition-colors"
@@ -268,6 +294,7 @@ const Register: React.FC = () => {
 
             <div className="relative">
               <Input
+                id="confirm-password"
                 label="Confirm Password"
                 type={showConfirmPassword ? "text" : "password"}
                 placeholder="••••••••"

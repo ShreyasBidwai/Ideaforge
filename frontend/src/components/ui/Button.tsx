@@ -39,7 +39,7 @@ export const Button: React.FC<ButtonProps> = ({
       {isLoading ? (
         <>
           <Loader2 size={16} className="animate-spin mr-2" />
-          <span>Please wait...</span>
+          <span>Loading...</span>
         </>
       ) : (
         children
@@ -47,3 +47,4 @@ export const Button: React.FC<ButtonProps> = ({
     </button>
   );
 };
+export default Button;
