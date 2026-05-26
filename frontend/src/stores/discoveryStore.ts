@@ -1,6 +1,13 @@
 import { create } from "zustand";
 import { type Session, type PainPoint } from "../types/api";
 import { sessionService } from "../services/sessionService";
+import apiClient from "../services/api";
+
+export interface MaturityLevelInfo {
+  level: string;
+  label: string;
+  description: string;
+}
 
 interface DiscoveryState {
   currentSession: Session | null;
@@ -8,8 +15,14 @@ interface DiscoveryState {
   isDiscovering: boolean;
   currentStep: string;
   error: string | null;
+  selectedMaturity: string;
+  selectedTechStack: string[];
+  maturityLevels: MaturityLevelInfo[];
   createAndDiscover: (industry: string, location: string, maturityLevel: string, techStack: string[]) => Promise<void>;
   clearSession: () => void;
+  fetchMaturityLevels: () => Promise<void>;
+  setSelectedMaturity: (maturity: string) => void;
+  setSelectedTechStack: (techStack: string[]) => void;
 }
 
 export const useDiscoveryStore = create<DiscoveryState>((set) => ({
@@ -18,6 +31,9 @@ export const useDiscoveryStore = create<DiscoveryState>((set) => ({
   isDiscovering: false,
   currentStep: "",
   error: null,
+  selectedMaturity: "mvp",
+  selectedTechStack: [],
+  maturityLevels: [],
 
   createAndDiscover: async (industry: string, location: string, maturityLevel: string, techStack: string[]) => {
     set({ isDiscovering: true, error: null, painPoints: [], currentStep: "starting" });
@@ -78,5 +94,23 @@ export const useDiscoveryStore = create<DiscoveryState>((set) => ({
       error: null,
     });
   },
+
+  fetchMaturityLevels: async () => {
+    try {
+      const response = await apiClient.get<MaturityLevelInfo[]>("/api/v1/maturity-levels");
+      set({ maturityLevels: response.data || [] });
+    } catch (error) {
+      console.error("Failed to fetch maturity levels:", error);
+    }
+  },
+
+  setSelectedMaturity: (maturity: string) => {
+    set({ selectedMaturity: maturity });
+  },
+
+  setSelectedTechStack: (techStack: string[]) => {
+    set({ selectedTechStack: techStack });
+  },
 }));
+
 

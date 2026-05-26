@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import { MapPin, Sparkles } from "lucide-react";
@@ -21,13 +21,21 @@ export const Discovery: React.FC = () => {
     error,
     createAndDiscover,
     clearSession,
+    selectedMaturity,
+    selectedTechStack,
+    maturityLevels,
+    fetchMaturityLevels,
+    setSelectedMaturity,
+    setSelectedTechStack,
   } = useDiscoveryStore();
 
   const [industry, setIndustry] = useState("");
   const [location, setLocation] = useState("");
-  const [maturityLevel, setMaturityLevel] = useState("mvp");
-  const [techStack, setTechStack] = useState<string[]>([]);
   const [errors, setErrors] = useState<{ industry?: string; location?: string }>({});
+
+  useEffect(() => {
+    fetchMaturityLevels();
+  }, [fetchMaturityLevels]);
 
   const handleStartDiscovery = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -45,7 +53,7 @@ export const Discovery: React.FC = () => {
     setErrors({});
 
     try {
-      await createAndDiscover(industry, location, maturityLevel, techStack);
+      await createAndDiscover(industry, location, selectedMaturity, selectedTechStack);
     } catch (err) {
       console.error("Discovery error:", err);
     }
@@ -100,13 +108,14 @@ export const Discovery: React.FC = () => {
             />
 
             <MaturitySelector
-              value={maturityLevel}
-              onChange={setMaturityLevel}
+              value={selectedMaturity}
+              onChange={setSelectedMaturity}
+              levels={maturityLevels}
             />
 
             <TechStackInput
-              value={techStack}
-              onChange={setTechStack}
+              selected={selectedTechStack}
+              onChange={setSelectedTechStack}
             />
 
             <button
