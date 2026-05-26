@@ -17,6 +17,11 @@ from app.schemas.tech_stack import (
     TechStackSearchResult,
     TechStackPreference,
 )
+from app.schemas.pain_point import (
+    PainPointSchema,
+    PainPointResponse,
+    DiscoverRequest,
+)
 
 __all__ = [
     "UserCreate",
@@ -32,4 +37,7 @@ __all__ = [
     "TechStackRegistry",
     "TechStackSearchResult",
     "TechStackPreference",
+    "PainPointSchema",
+    "PainPointResponse",
+    "DiscoverRequest",
 ]

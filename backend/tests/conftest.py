@@ -124,3 +124,9 @@ async def other_auth_headers(client):
     )
     token = login.json()["access_token"]
     return {"Authorization": f"Bearer {token}"}
+
+@pytest.fixture
+def mock_gemini():
+    from unittest.mock import AsyncMock, patch
+    with patch("app.ai.provider.GeminiProvider.generate", new_callable=AsyncMock) as mock:
+        yield mock
