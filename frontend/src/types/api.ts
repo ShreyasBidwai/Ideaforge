@@ -51,6 +51,8 @@ export interface Session {
   industry: string;
   location: string;
   pain_points: PainPoint[] | null;
+  maturity_level: 'poc' | 'mvp' | 'pre_production' | 'production';
+  tech_stack_preferences: string[] | null;
   status: 'discovery' | 'problem_generation' | 'solution_generation' | 'evaluation' | 'completed';
   created_at: string;
   updated_at: string;
@@ -59,6 +61,8 @@ export interface Session {
 export interface CreateSessionRequest {
   industry: string;
   location: string;
+  maturity_level?: 'poc' | 'mvp' | 'pre_production' | 'production';
+  tech_stack_preferences?: string[];
 }
 
 // ─── Pain Points ───
