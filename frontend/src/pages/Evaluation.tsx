@@ -5,11 +5,13 @@ import { ArrowLeft, Check, Award, ShieldAlert } from "lucide-react";
 
 import { useEvaluationStore } from "../stores/evaluationStore";
 import { useToastStore } from "../stores/toastStore";
+import { useSolutionStore } from "../stores/solutionStore";
 import RubricEditor from "../components/evaluation/RubricEditor";
 import DisqualifierGate from "../components/evaluation/DisqualifierGate";
 import ScoringTable from "../components/evaluation/ScoringTable";
 import AttackCards from "../components/evaluation/AttackCards";
 import ACHAnalysis from "../components/evaluation/ACHAnalysis";
+import ComparisonMatrix from "../components/evaluation/ComparisonMatrix";
 
 const Evaluation: React.FC = () => {
   const { problemId } = useParams<{ problemId: string }>();
@@ -39,13 +41,16 @@ const Evaluation: React.FC = () => {
     setStep,
   } = useEvaluationStore();
 
+  const { fetchSolutions, solutions, approveSolution } = useSolutionStore();
+
   const [activeTab, setActiveTab] = useState<string>("rubric");
 
   useEffect(() => {
     if (problemId) {
       loadFullEvaluation(problemId);
+      fetchSolutions(problemId);
     }
-  }, [problemId, loadFullEvaluation]);
+  }, [problemId, loadFullEvaluation, fetchSolutions]);
 
   useEffect(() => {
     setActiveTab(currentStep);
@@ -90,7 +95,9 @@ const Evaluation: React.FC = () => {
   // Auto-run comparison when entering comparison step
   useEffect(() => {
     if (activeTab === "comparison" && problemId && !comparison && !isLoading) {
-      runGenerateComparison(problemId).catch((err) => {
+      runGenerateComparison(problemId).then(() => {
+        addToast("success", "Evaluation complete — review comparison");
+      }).catch((err) => {
         addToast("error", err.message || "Failed to generate Comparison Matrix");
       });
     }
@@ -109,7 +116,7 @@ const Evaluation: React.FC = () => {
     if (!problemId) return;
     try {
       await lockRubric(problemId);
-      addToast("success", "Rubric locked successfully!");
+      addToast("success", "Rubric locked — ready for evaluation");
       setStep("disqualifiers");
     } catch (err: any) {
       addToast("error", err.message || "Failed to lock rubric");
@@ -299,139 +306,15 @@ const Evaluation: React.FC = () => {
                   />
                 )}
 
-                {activeTab === "comparison" && comparison && (
-                  <div className="space-y-8 animate-in fade-in">
-                    <div className="space-y-2">
-                      <h3 className="text-2xl font-bold text-white">Evaluation Comparison Matrix</h3>
-                      <p className="text-sm text-slate-400">
-                        Objective metrics aggregated from all steps. Leaders per category are highlighted.
-                      </p>
-                    </div>
-
-                    {/* Table */}
-                    <div className="overflow-x-auto border border-white/5 rounded-2xl shadow-xl bg-slate-900/60 max-w-full">
-                      <table className="w-full border-collapse text-left min-w-[700px]">
-                        <thead>
-                          <tr className="border-b border-white/5 bg-slate-900/80">
-                            <th className="p-4 font-semibold text-slate-400">Metric</th>
-                            {comparison.entries.map((entry) => (
-                              <th key={entry.solution_title} className="p-4 font-bold text-white text-center border-l border-white/5">
-                                {entry.solution_title}
-                              </th>
-                            ))}
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {/* Weighted Avg */}
-                          <tr className="border-b border-white/5 hover:bg-slate-800/40">
-                            <td className="p-4 font-medium text-slate-300">Weighted Average</td>
-                            {comparison.entries.map((entry) => {
-                              const isLeader = comparison.leaders["weighted_avg"] === entry.solution_title;
-                              return (
-                                <td key={entry.solution_title} className={`p-4 text-center border-l border-white/5 font-semibold ${isLeader ? "text-blue-400 bg-blue-500/5 font-bold" : "text-slate-300"}`}>
-                                  {entry.weighted_avg.toFixed(2)}
-                                  {isLeader && <span className="ml-2 text-[10px] bg-blue-500/10 text-blue-400 px-1.5 py-0.5 rounded-full border border-blue-500/20">Leader</span>}
-                                </td>
-                              );
-                            })}
-                          </tr>
-
-                          {/* Min Score */}
-                          <tr className="border-b border-white/5 hover:bg-slate-800/40">
-                            <td className="p-4 font-medium text-slate-300">Minimum Score</td>
-                            {comparison.entries.map((entry) => {
-                              const isLeader = comparison.leaders["min_score"] === entry.solution_title;
-                              return (
-                                <td key={entry.solution_title} className={`p-4 text-center border-l border-white/5 font-semibold ${isLeader ? "text-blue-400 bg-blue-500/5 font-bold" : "text-slate-300"}`}>
-                                  {entry.min_score}
-                                  {isLeader && <span className="ml-2 text-[10px] bg-blue-500/10 text-blue-400 px-1.5 py-0.5 rounded-full border border-blue-500/20">Leader</span>}
-                                </td>
-                              );
-                            })}
-                          </tr>
-
-                          {/* Attack Survival */}
-                          {maturitySteps.includes("attacks") && (
-                            <tr className="border-b border-white/5 hover:bg-slate-800/40">
-                              <td className="p-4 font-medium text-slate-300">Worst-Case Attack Survival</td>
-                              {comparison.entries.map((entry) => {
-                                const isLeader = comparison.leaders["attack_survives"] === entry.solution_title;
-                                return (
-                                  <td key={entry.solution_title} className={`p-4 text-center border-l border-white/5 ${isLeader ? "bg-blue-500/5" : ""}`}>
-                                    <div className="flex flex-col items-center gap-1">
-                                      <span className={`text-xs font-semibold ${entry.attack_survives ? "text-emerald-400" : "text-red-400"}`}>
-                                        {entry.attack_survives ? "Survives" : "Fails"}
-                                      </span>
-                                      <span className="text-[10px] text-slate-500 line-clamp-2 max-w-xs text-center">{entry.attack_summary}</span>
-                                    </div>
-                                  </td>
-                                );
-                              })}
-                            </tr>
-                          )}
-
-                          {/* Inconsistency Count */}
-                          {maturitySteps.includes("ach") && (
-                            <tr className="hover:bg-slate-800/40">
-                              <td className="p-4 font-medium text-slate-300">Evidence Inconsistencies</td>
-                              {comparison.entries.map((entry) => {
-                                const isLeader = comparison.leaders["inconsistency_count"] === entry.solution_title;
-                                return (
-                                  <td key={entry.solution_title} className={`p-4 text-center border-l border-white/5 font-semibold ${isLeader ? "text-blue-400 bg-blue-500/5 font-bold" : "text-slate-300"}`}>
-                                    {entry.inconsistency_count}
-                                    {isLeader && <span className="ml-2 text-[10px] bg-blue-500/10 text-blue-400 px-1.5 py-0.5 rounded-full border border-blue-500/20">Leader</span>}
-                                  </td>
-                                );
-                              })}
-                            </tr>
-                          )}
-                        </tbody>
-                      </table>
-                    </div>
-
-                    {/* Leader / Clear Winner Card */}
-                    {comparison.is_clear_winner && (
-                      <div className="bg-emerald-950/20 border border-emerald-500/20 rounded-2xl p-6 flex items-center gap-4 text-emerald-400">
-                        <div className="p-3 bg-emerald-500/10 rounded-full border border-emerald-500/20">
-                          <Check className="w-6 h-6" />
-                        </div>
-                        <div>
-                          <h4 className="font-bold text-white text-base">Clear Winner Identified</h4>
-                          <p className="text-sm text-slate-300 mt-0.5">
-                            One candidate outperformed all others across every measured metric.
-                          </p>
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Disagreement Warning */}
-                    {!comparison.is_clear_winner && comparison.disagreements.length > 0 && (
-                      <div className="bg-amber-950/20 border border-amber-500/20 rounded-2xl p-6 space-y-3 text-amber-400">
-                        <div className="flex items-center gap-2">
-                          <ShieldAlert className="w-5 h-5" />
-                          <h4 className="font-bold text-white text-base">Conflict Flags (Metrics Disagree)</h4>
-                        </div>
-                        <ul className="space-y-1.5 text-sm text-slate-300 pl-2">
-                          {comparison.disagreements.map((dis, idx) => (
-                            <li key={idx} className="flex gap-2 items-start">
-                              <span>•</span>
-                              <span>{dis}</span>
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
-
-                    {/* Bottom Actions */}
-                    <div className="flex justify-end pt-4">
-                      <button
-                        onClick={() => navigate(`/workspace/${problemId}`)}
-                        className="w-full md:w-auto px-8 py-3 bg-blue-600 hover:bg-blue-500 text-white font-semibold rounded-xl shadow-lg transition-all"
-                      >
-                        Complete Evaluation & Return
-      </button>
-                    </div>
-                  </div>
+                {activeTab === "comparison" && (
+                  <ComparisonMatrix
+                    comparison={comparison}
+                    onApprove={async (solId) => {
+                      await approveSolution(solId);
+                    }}
+                    onRegenerateSolutions={() => navigate(`/workspace/${problemId}`)}
+                    solutions={solutions}
+                  />
                 )}
               </motion.div>
             </AnimatePresence>

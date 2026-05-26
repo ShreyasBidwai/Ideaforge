@@ -2,23 +2,35 @@ import React, { useState } from "react";
 import { Link } from "react-router-dom";
 import { motion } from "framer-motion";
 import { Check, X, ShieldAlert, Award, Star, RefreshCw, ArrowRight } from "lucide-react";
-import type { ComparisonResult } from "../../types/api";
+import type { ComparisonResult, Solution } from "../../types/api";
 import MetricLeaderBadge from "./MetricLeaderBadge";
+import { useEffect } from "react";
 
 interface ComparisonMatrixProps {
   comparison: ComparisonResult | null;
   onApprove: (solutionId: string) => void;
   onRegenerateSolutions?: () => void;
+  solutions?: Solution[];
 }
 
 const ComparisonMatrix: React.FC<ComparisonMatrixProps> = ({
   comparison,
   onApprove,
   onRegenerateSolutions,
+  solutions,
 }) => {
   const [approvedSolutionId, setApprovedSolutionId] = useState<string | null>(null);
   const [showConfetti, setShowConfetti] = useState(false);
   const [expandedAttacks, setExpandedAttacks] = useState<Record<string, boolean>>({});
+
+  useEffect(() => {
+    if (solutions) {
+      const approved = solutions.find((s) => s.status === "approved");
+      if (approved) {
+        setApprovedSolutionId(approved.id);
+      }
+    }
+  }, [solutions]);
 
   if (!comparison) {
     return (

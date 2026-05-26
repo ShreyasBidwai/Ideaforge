@@ -55,7 +55,6 @@ const SolutionWorkspace: React.FC = () => {
     try {
       addToast("info", "Generating technology solution candidates...");
       await generateSolutions(problemId);
-      addToast("success", "Solution candidates generated successfully!");
       // Re-fetch to get up-to-date session/problem state
       fetchSolutions(problemId);
     } catch (err: any) {

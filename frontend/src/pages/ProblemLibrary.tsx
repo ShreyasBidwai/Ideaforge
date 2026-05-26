@@ -1,6 +1,6 @@
 import React, { useEffect } from "react";
 import { Link } from "react-router-dom";
-import { Library, Plus, ChevronLeft, ChevronRight, Award, FolderHeart, ListPlus } from "lucide-react";
+import { Library, Plus, ChevronLeft, ChevronRight, Award, FolderHeart, ListPlus, ArrowLeft } from "lucide-react";
 import { useProblemStore } from "../stores/problemStore";
 import ProblemStatementCard from "../components/problems/ProblemStatementCard";
 import ProblemFilters from "../components/problems/ProblemFilters";
@@ -51,6 +51,17 @@ export const ProblemLibrary: React.FC = () => {
     <div className="min-h-screen bg-slate-950 text-white font-sans selection:bg-blue-600/30 selection:text-blue-200">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 space-y-8">
         
+        {/* Back to Dashboard */}
+        <div>
+          <Link
+            to="/"
+            className="inline-flex items-center gap-1.5 text-xs text-slate-400 hover:text-white transition-colors"
+          >
+            <ArrowLeft className="w-4 h-4" />
+            <span>Back to Dashboard</span>
+          </Link>
+        </div>
+
         {/* Header Section */}
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
           <div className="space-y-1">

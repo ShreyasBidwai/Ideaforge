@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { type Session, type PainPoint, type ProblemStatement } from "../types/api";
 import { sessionService } from "../services/sessionService";
 import apiClient from "../services/api";
+import { useToastStore } from "./toastStore";
 
 export interface MaturityLevelInfo {
   level: string;
@@ -50,6 +51,7 @@ export const useDiscoveryStore = create<DiscoveryState>((set, get) => ({
         tech_stack_preferences: techStack,
       });
       set({ currentSession: session });
+      useToastStore.getState().addToast("success", `Discovery session started for ${industry}`);
 
       const { streamDiscover } = await import("../services/streamService");
 
@@ -70,6 +72,7 @@ export const useDiscoveryStore = create<DiscoveryState>((set, get) => ({
             isDiscovering: false,
             currentStep: "complete",
           });
+          useToastStore.getState().addToast("success", `${pps.length} pain points discovered`);
         },
         (err) => {
           set({
@@ -138,6 +141,7 @@ export const useDiscoveryStore = create<DiscoveryState>((set, get) => ({
               ? { ...state.currentSession, status: "solution_generation" }
               : null,
           }));
+          useToastStore.getState().addToast("success", `${problems.length} problem statements generated`);
         },
         (err) => {
           set({

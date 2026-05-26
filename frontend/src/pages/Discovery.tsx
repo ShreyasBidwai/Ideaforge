@@ -97,7 +97,7 @@ export const Discovery: React.FC = () => {
   const handleSelectAndContinue = async (id: string) => {
     try {
       await selectProblem(id);
-      addToast("success", "Problem statement selected. Moving to Workspace.");
+      addToast("success", "Problem selected — generating solutions...");
       navigate(`/workspace/${id}`);
     } catch (err) {
       console.error("Select problem error:", err);
@@ -126,10 +126,21 @@ export const Discovery: React.FC = () => {
   return (
     <ErrorBoundary>
       <div className="w-full max-w-6xl mx-auto px-4 py-8">
-      {!showResults ? (
-        // Phase 1: Input Form
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
+        {!showResults && (
+          <div className="max-w-2xl mx-auto mb-4">
+            <button
+              onClick={() => navigate("/")}
+              className="inline-flex items-center gap-1.5 text-xs text-slate-400 hover:text-white transition-colors"
+            >
+              <ArrowLeft className="w-4 h-4" />
+              <span>Back to Dashboard</span>
+            </button>
+          </div>
+        )}
+        {!showResults ? (
+          // Phase 1: Input Form
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.4 }}
           className="max-w-2xl mx-auto bg-slate-900/60 backdrop-blur-xl border border-white/5 rounded-3xl p-4 sm:p-8 shadow-2xl relative overflow-hidden"

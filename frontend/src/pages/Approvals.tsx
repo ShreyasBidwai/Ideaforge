@@ -8,7 +8,8 @@ import {
   TrendingUp,
   ShieldAlert,
   ArrowRight,
-  Sparkles
+  Sparkles,
+  ArrowLeft
 } from "lucide-react";
 import apiClient from "../services/api";
 import { useToastStore } from "../stores/toastStore";
@@ -103,6 +104,17 @@ const Approvals: React.FC = () => {
   return (
     <ErrorBoundary>
       <div className="w-full max-w-5xl mx-auto px-4 py-8 space-y-8 text-white">
+        {/* Back to Dashboard */}
+        <div>
+          <button
+            onClick={() => navigate("/")}
+            className="inline-flex items-center gap-1.5 text-xs text-slate-400 hover:text-white transition-colors"
+          >
+            <ArrowLeft className="w-4 h-4" />
+            <span>Back to Dashboard</span>
+          </button>
+        </div>
+
         {/* Header section */}
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-white/5 pb-6">
           <div className="space-y-1">

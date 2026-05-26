@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { type Solution, type ProblemStatement } from "../types/api";
 import apiClient from "../services/api";
 import { problemService } from "../services/problemService";
+import { useToastStore } from "./toastStore";
 
 interface SolutionState {
   solutions: Solution[];
@@ -61,6 +62,7 @@ export const useSolutionStore = create<SolutionState>((set, get) => ({
             currentStep: "complete",
             progressMessage: ""
           });
+          useToastStore.getState().addToast("success", `${sols.length} solution candidates generated`);
         },
         (err) => {
           set({
@@ -93,6 +95,7 @@ export const useSolutionStore = create<SolutionState>((set, get) => ({
         solutions: updatedSolutions,
         isLoading: false
       });
+      useToastStore.getState().addToast("success", "Solution approved! View in Approvals queue");
     } catch (err: any) {
       set({
         isLoading: false,
