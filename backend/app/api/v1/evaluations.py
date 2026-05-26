@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import get_current_user
 from app.core.database import get_db
 from app.models import User
-from app.schemas.evaluation import RubricResponse, RubricSchema
+from app.schemas.evaluation import RubricResponse, RubricSchema, ComparisonResult, FullEvaluationResponse
 from app.services.evaluation_service import EvaluationService
 from app.ai.provider import get_ai_provider, AIProvider
 
@@ -115,5 +115,24 @@ async def get_ach(
 ):
     service = EvaluationService(None, db)
     return await service.get_ach(problem_id, current_user.id)
+
+@router.post("/problem-statements/{problem_id}/evaluation/compare", response_model=ComparisonResult)
+async def generate_comparison(
+    problem_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    service = EvaluationService(None, db)
+    return await service.generate_comparison(problem_id, current_user.id)
+
+@router.get("/problem-statements/{problem_id}/evaluation", response_model=FullEvaluationResponse)
+async def get_full_evaluation(
+    problem_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    service = EvaluationService(None, db)
+    return await service.get_full_evaluation(problem_id, current_user.id)
+
 
 

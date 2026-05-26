@@ -853,6 +853,241 @@ class EvaluationService:
 
         return {"analysis": analysis_out}
 
+    async def generate_comparison(self, problem_id: UUID, user_id: UUID) -> dict:
+        """
+        Step 8: Final Comparison (computed, no AI call needed)
+        1. Gather all evaluation data for survivors: weighted_avg, min_score, attack_summary, attack_survives, inconsistency_count
+        2. Build comparison table
+        3. Determine leader per metric:
+           - Highest weighted_avg
+           - Highest min_score
+           - Best attack survival (survives=True > False)
+           - Lowest inconsistency_count
+        4. Flag if one candidate wins ALL 4 metrics → "clear survivor"
+        5. Flag if metrics disagree → highlight disagreement explicitly
+        6. DO NOT recommend or decide. Present data only.
+        7. Update session status to "completed"
+        8. Return comparison
+        """
+        problem = await self._get_problem_and_validate(problem_id, user_id)
+        solutions_list = await self._get_solutions(problem_id)
+
+        # Get evaluations
+        evaluations_result = await self.db.execute(
+            select(Evaluation)
+            .options(joinedload(Evaluation.solution))
+            .where(Evaluation.solution_id.in_([s.id for s in solutions_list]))
+        )
+        evaluations_list = list(evaluations_result.scalars().all())
+
+        surviving_solutions = [s for s in solutions_list if s.status != "disqualified"]
+
+        entries = []
+        for s in surviving_solutions:
+            e = next((ev for ev in evaluations_list if ev.solution_id == s.id), None)
+            if e:
+                entries.append({
+                    "solution_id": s.id,
+                    "solution_title": s.title,
+                    "weighted_avg": e.weighted_avg or 0.0,
+                    "min_score": e.min_score or 0.0,
+                    "attack_summary": e.attack_summary or "",
+                    "attack_survives": e.attack_survives if e.attack_survives is not None else False,
+                    "inconsistency_count": e.inconsistency_count or 0
+                })
+
+        comparison = self._compute_comparison_results(entries)
+
+        # Update session and evaluation status
+        session = problem.session
+        session.status = "completed"
+        for ev in evaluations_list:
+            ev.status = "completed"
+
+        await self.db.commit()
+        return comparison
+
+    async def get_full_evaluation(self, problem_id: UUID, user_id: UUID) -> dict:
+        """
+        Get complete evaluation state: rubric, disqualifier results, scores, attacks, ACH, comparison.
+        Single endpoint to load the full evaluation wizard state.
+        """
+        problem = await self._get_problem_and_validate(problem_id, user_id)
+        solutions_list = await self._get_solutions(problem_id)
+
+        # Get evaluations
+        evaluations_result = await self.db.execute(
+            select(Evaluation)
+            .options(joinedload(Evaluation.solution))
+            .where(Evaluation.solution_id.in_([s.id for s in solutions_list]))
+        )
+        evaluations_list = list(evaluations_result.scalars().all())
+
+        if not evaluations_list:
+            return {
+                "status": "pending"
+            }
+
+        rubric = evaluations_list[0].rubric
+        status_str = evaluations_list[0].status
+
+        # 1. Disqualifier results
+        disqualifier_results = None
+        is_disq_run = any(
+            e.status in ("disqualified_passed", "disqualified", "scored", "completed")
+            for e in evaluations_list
+        )
+        if is_disq_run:
+            results = []
+            for e in evaluations_list:
+                passed = (e.status != "disqualified" and e.solution.status != "disqualified")
+                results.append({
+                    "solution_title": e.solution.title,
+                    "passed": passed,
+                    "failed_disqualifiers": [] if passed else ["Disqualified by gate"],
+                    "reasons": [] if passed else ["Candidate failed disqualifier gate check"]
+                })
+            disqualifier_results = {"results": results}
+
+        # 2. Scores
+        scores = None
+        is_scored = any(e.status in ("scored", "completed") for e in evaluations_list)
+        if is_scored:
+            scores_list = []
+            for e in evaluations_list:
+                if e.scores:
+                    scores_list.append({
+                        "solution_title": e.solution.title,
+                        "criterion_scores": e.scores,
+                        "weighted_avg": e.weighted_avg,
+                        "min_score": e.min_score
+                    })
+            scores = {"scores": scores_list}
+
+        # 3. Attacks
+        attacks = None
+        is_attacked = any(e.status in ("completed",) or e.attack_summary is not None for e in evaluations_list)
+        if is_attacked:
+            attacks_list = []
+            for e in evaluations_list:
+                if e.attack_summary is not None:
+                    attacks_list.append({
+                        "solution_title": e.solution.title,
+                        "attack": e.attack_summary,
+                        "survives": e.attack_survives
+                    })
+            attacks = {"attacks": attacks_list}
+
+        # 4. ACH Analysis
+        ach_analysis = None
+        is_ach = any(e.status == "completed" or e.inconsistencies is not None for e in evaluations_list)
+        if is_ach:
+            analysis_list = []
+            for e in evaluations_list:
+                if e.inconsistencies is not None:
+                    analysis_list.append({
+                        "solution_title": e.solution.title,
+                        "inconsistencies": e.inconsistencies,
+                        "count": e.inconsistency_count
+                    })
+            ach_analysis = {"analysis": analysis_list}
+
+        # 5. Comparison
+        comparison = None
+        surviving_evals = [e for e in evaluations_list if e.status != "disqualified" and e.solution.status != "disqualified"]
+        if surviving_evals and any(e.weighted_avg is not None for e in surviving_evals):
+            entries = []
+            for e in surviving_evals:
+                entries.append({
+                    "solution_id": e.solution_id,
+                    "solution_title": e.solution.title,
+                    "weighted_avg": e.weighted_avg or 0.0,
+                    "min_score": e.min_score or 0.0,
+                    "attack_summary": e.attack_summary or "",
+                    "attack_survives": e.attack_survives if e.attack_survives is not None else False,
+                    "inconsistency_count": e.inconsistency_count or 0
+                })
+            comparison = self._compute_comparison_results(entries)
+
+        return {
+            "rubric": rubric,
+            "disqualifier_results": disqualifier_results,
+            "scores": scores,
+            "attacks": attacks,
+            "ach_analysis": ach_analysis,
+            "comparison": comparison,
+            "status": status_str
+        }
+
+    @staticmethod
+    def _compute_comparison_results(entries: list[dict]) -> dict:
+        if not entries:
+            return {
+                "entries": [],
+                "leaders": {},
+                "is_clear_winner": False,
+                "disagreements": []
+            }
+
+        max_weighted_avg = max(x["weighted_avg"] for x in entries)
+        max_min_score = max(x["min_score"] for x in entries)
+        max_attack_survives = max(x["attack_survives"] for x in entries)
+        min_inconsistency = min(x["inconsistency_count"] for x in entries)
+
+        weighted_avg_leader = max(entries, key=lambda x: x["weighted_avg"])["solution_title"]
+        min_score_leader = max(entries, key=lambda x: x["min_score"])["solution_title"]
+        attack_survives_leader = max(entries, key=lambda x: x["attack_survives"])["solution_title"]
+        inconsistency_count_leader = min(entries, key=lambda x: x["inconsistency_count"])["solution_title"]
+
+        leaders = {
+            "weighted_avg": weighted_avg_leader,
+            "min_score": min_score_leader,
+            "attack_survives": attack_survives_leader,
+            "inconsistency_count": inconsistency_count_leader
+        }
+
+        clear_winner_title = None
+        for entry in entries:
+            if (entry["weighted_avg"] == max_weighted_avg and
+                entry["min_score"] == max_min_score and
+                entry["attack_survives"] == max_attack_survives and
+                entry["inconsistency_count"] == min_inconsistency):
+                clear_winner_title = entry["solution_title"]
+                break
+
+        is_clear_winner = clear_winner_title is not None
+
+        disagreements = []
+        if not is_clear_winner:
+            leaders_by_metric = {}
+            for entry in entries:
+                metrics_led = []
+                if entry["weighted_avg"] == max_weighted_avg:
+                    metrics_led.append("weighted_avg")
+                if entry["min_score"] == max_min_score:
+                    metrics_led.append("min_score")
+                if entry["attack_survives"] == max_attack_survives:
+                    metrics_led.append("attack_survives")
+                if entry["inconsistency_count"] == min_inconsistency:
+                    metrics_led.append("inconsistency_count")
+                for m in metrics_led:
+                    leaders_by_metric.setdefault(m, []).append(entry["solution_title"])
+
+            for m1, m2 in [("weighted_avg", "min_score"), ("weighted_avg", "attack_survives"), ("weighted_avg", "inconsistency_count")]:
+                l1 = leaders_by_metric.get(m1, [])
+                l2 = leaders_by_metric.get(m2, [])
+                if not (set(l1) & set(l2)):
+                    disagreements.append(
+                        f"{m1.replace('_', ' ').title()} points to {', '.join(l1)}, but {m2.replace('_', ' ').title()} points to {', '.join(l2)}."
+                    )
+
+        return {
+            "entries": entries,
+            "leaders": leaders,
+            "is_clear_winner": is_clear_winner,
+            "disagreements": disagreements
+        }
+
     @staticmethod
     def compute_weighted_avg(scores: list[dict], criteria: list[dict]) -> float:
         """Compute weighted average from scores and criteria weights"""
@@ -865,4 +1100,5 @@ class EvaluationService:
     def compute_min_score(scores: list[dict]) -> float:
         """Find the minimum score across all criteria"""
         return min(s["score"] for s in scores) if scores else 0
+
 

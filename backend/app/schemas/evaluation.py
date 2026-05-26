@@ -47,3 +47,28 @@ class EvaluationResponse(BaseModel):
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
+
+class ComparisonEntry(BaseModel):
+    solution_id: UUID
+    solution_title: str
+    weighted_avg: float
+    min_score: float
+    attack_summary: str
+    attack_survives: bool
+    inconsistency_count: int
+
+class ComparisonResult(BaseModel):
+    entries: list[ComparisonEntry]
+    leaders: dict[str, str]
+    is_clear_winner: bool
+    disagreements: list[str]
+
+class FullEvaluationResponse(BaseModel):
+    rubric: RubricSchema | dict | None = None
+    disqualifier_results: dict | None = None
+    scores: dict | None = None
+    attacks: dict | None = None
+    ach_analysis: dict | None = None
+    comparison: ComparisonResult | None = None
+    status: str
+
