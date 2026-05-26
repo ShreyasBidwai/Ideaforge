@@ -19,6 +19,8 @@ const SolutionWorkspace: React.FC = () => {
     isGenerating,
     isLoading,
     error,
+    currentStep,
+    progressMessage,
     fetchSolutions,
     generateSolutions,
     clearSolutions
@@ -157,7 +159,39 @@ const SolutionWorkspace: React.FC = () => {
       {/* Main Section — Content Area */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 space-y-8">
         {isLoading || isGenerating ? (
-          <SolutionSkeleton />
+          <div className="space-y-6">
+            {isGenerating && (
+              <div className="bg-slate-900/50 border border-white/5 rounded-2xl p-6 mb-6 backdrop-blur-sm max-w-xl mx-auto text-center space-y-4 shadow-xl">
+                <div className="w-10 h-10 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto" />
+                <div>
+                  <p className="text-sm font-semibold text-white capitalize">
+                    {currentStep ? `Status: ${currentStep}` : "Preparing..."}
+                  </p>
+                  <p className="text-xs text-slate-400 mt-1">
+                    {progressMessage || "Analyzing session requirements..."}
+                  </p>
+                </div>
+                <div className="w-full bg-slate-800 rounded-full h-1.5 overflow-hidden">
+                  <div
+                    className="bg-blue-600 h-1.5 rounded-full transition-all duration-500"
+                    style={{
+                      width:
+                        currentStep === "preparing"
+                          ? "25%"
+                          : currentStep === "generating"
+                          ? "50%"
+                          : currentStep === "validating"
+                          ? "75%"
+                          : currentStep === "saving"
+                          ? "90%"
+                          : "10%"
+                    }}
+                  />
+                </div>
+              </div>
+            )}
+            <SolutionSkeleton />
+          </div>
         ) : error ? (
           <div className="text-center p-8 bg-red-950/20 border border-red-500/20 rounded-2xl max-w-md mx-auto">
             <p className="text-red-400">{error}</p>

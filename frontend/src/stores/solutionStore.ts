@@ -9,6 +9,8 @@ interface SolutionState {
   isGenerating: boolean;
   isLoading: boolean;
   error: string | null;
+  currentStep?: string;
+  progressMessage?: string;
   fetchSolutions: (problemId: string) => Promise<void>;
   generateSolutions: (problemId: string) => Promise<void>;
   approveSolution: (solutionId: string) => Promise<void>;
@@ -21,6 +23,8 @@ export const useSolutionStore = create<SolutionState>((set, get) => ({
   isGenerating: false,
   isLoading: false,
   error: null,
+  currentStep: "",
+  progressMessage: "",
 
   fetchSolutions: async (problemId: string) => {
     set({ isLoading: true, error: null });
@@ -41,17 +45,37 @@ export const useSolutionStore = create<SolutionState>((set, get) => ({
   },
 
   generateSolutions: async (problemId: string) => {
-    set({ isGenerating: true, error: null });
+    set({ isGenerating: true, error: null, currentStep: "starting", progressMessage: "Initializing..." });
     try {
-      const res = await apiClient.post<Solution[]>(`/api/v1/problem-statements/${problemId}/generate-solutions`);
-      set({
-        solutions: res.data,
-        isGenerating: false
-      });
+      const { streamSolutions } = await import("../services/streamService");
+      await streamSolutions(
+        problemId,
+        (status, message) => {
+          set({ currentStep: status, progressMessage: message });
+        },
+        (sols) => {
+          set({
+            solutions: sols,
+            isGenerating: false,
+            currentStep: "complete",
+            progressMessage: ""
+          });
+        },
+        (err) => {
+          set({
+            isGenerating: false,
+            error: err,
+            currentStep: "",
+            progressMessage: ""
+          });
+        }
+      );
     } catch (err: any) {
       set({
         isGenerating: false,
-        error: err.response?.data?.detail || "Failed to generate solutions"
+        error: err.message || "Failed to generate solutions",
+        currentStep: "",
+        progressMessage: ""
       });
       throw err;
     }
@@ -81,7 +105,9 @@ export const useSolutionStore = create<SolutionState>((set, get) => ({
     set({
       solutions: [],
       currentProblem: null,
-      error: null
+      error: null,
+      currentStep: "",
+      progressMessage: ""
     });
   }
 }));

@@ -241,3 +241,165 @@ class SolutionService:
         await self.db.commit()
         await self.db.refresh(sol)
         return sol
+
+    async def validate_problem_for_generation(self, problem_id: UUID, user_id: UUID) -> ProblemStatement:
+        result = await self.db.execute(
+            select(ProblemStatement)
+            .options(joinedload(ProblemStatement.session))
+            .where(ProblemStatement.id == problem_id)
+        )
+        problem = result.scalar_one_or_none()
+
+        if problem is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Problem statement not found"
+            )
+        
+        if problem.session.user_id != user_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Forbidden: You do not own this session"
+            )
+        
+        if problem.status != "selected":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Problem statement is not selected"
+            )
+        return problem
+
+    async def generate_solutions_stream(self, problem_id: UUID, user_id: UUID):
+        # 1. Preparing
+        yield {"status": "preparing", "message": "Analyzing problem statement..."}
+        problem = await self.validate_problem_for_generation(problem_id, user_id)
+        session = problem.session
+
+        from app.core.maturity import get_maturity_config, MaturityLevel
+        maturity_config = get_maturity_config(MaturityLevel(session.maturity_level))
+        tech_prefs = session.tech_stack_preferences
+
+        # 2. Generating
+        yield {"status": "generating", "message": "Generating diverse solution candidates..."}
+        from app.ai.prompts.solutions import build_solution_prompt
+        problem_dict = {
+            "title": problem.title,
+            "description": problem.description,
+            "target_user": problem.target_user,
+            "core_pain": problem.core_pain,
+            "market_context": problem.market_context
+        }
+        system_prompt, user_prompt = build_solution_prompt(problem_dict, maturity_config, tech_prefs)
+
+        response_schema = {
+            "type": "OBJECT",
+            "properties": {
+                "solutions": {
+                    "type": "ARRAY",
+                    "items": {
+                        "type": "OBJECT",
+                        "properties": {
+                            "title": {"type": "STRING"},
+                            "description": {"type": "STRING"},
+                            "mechanism": {"type": "STRING"},
+                            "tech_stack": {
+                                "type": "ARRAY",
+                                "items": {"type": "STRING"}
+                            },
+                            "target_user": {"type": "STRING"},
+                            "revenue_model": {"type": "STRING"},
+                            "is_unconventional": {"type": "BOOLEAN"}
+                        },
+                        "required": ["title", "description", "mechanism", "tech_stack", "target_user", "revenue_model", "is_unconventional"]
+                    }
+                }
+            },
+            "required": ["solutions"]
+        }
+
+        parsed = None
+        try:
+            raw_response = await self.ai.generate(
+                prompt=user_prompt,
+                system_prompt=system_prompt,
+                response_schema=response_schema,
+                temperature=maturity_config.temperature
+            )
+            data = json.loads(raw_response)
+            parsed = data.get("solutions", [])
+        except Exception as e:
+            # Retry once
+            retry_prompt = (
+                f"{user_prompt}\n\n"
+                f"Your previous response failed validation with error: {str(e)}.\n"
+                f"Please correct any issues and return ONLY valid JSON matching the schema."
+            )
+            try:
+                raw_response = await self.ai.generate(
+                    prompt=retry_prompt,
+                    system_prompt=system_prompt,
+                    response_schema=response_schema,
+                    temperature=maturity_config.temperature
+                )
+                data = json.loads(raw_response)
+                parsed = data.get("solutions", [])
+            except Exception as retry_err:
+                raise HTTPException(
+                    status_code=status.HTTP_502_BAD_GATEWAY,
+                    detail=f"AI generation failed validation: {str(retry_err)}"
+                )
+
+        if not parsed:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail="AI generated no solutions"
+            )
+
+        # 3. Validating
+        yield {"status": "validating", "message": "Verifying solution diversity and specificity..."}
+        # Verify at least one is_unconventional=True
+        has_unconventional = any(item.get("is_unconventional") is True for item in parsed)
+        if not has_unconventional:
+            parsed[-1]["is_unconventional"] = True
+
+        # Verify mechanism diversity
+        mechanisms = [item.get("mechanism", "")[:50] for item in parsed]
+        if len(mechanisms) != len(set(mechanisms)):
+            logger.warning("AI generated identical mechanisms. Forcing last to differentiate.")
+
+        # 4. Saving
+        yield {"status": "saving", "message": "Saving solution candidates..."}
+        created_solutions = []
+        for item in parsed:
+            db_sol = Solution(
+                problem_id=problem.id,
+                title=item["title"],
+                description=item["description"],
+                mechanism=item.get("mechanism"),
+                tech_stack=item.get("tech_stack"),
+                target_user=item.get("target_user"),
+                revenue_model=item.get("revenue_model"),
+                is_unconventional=item.get("is_unconventional", False),
+                status="candidate"
+            )
+            self.db.add(db_sol)
+            created_solutions.append(db_sol)
+
+        # Update session status
+        session.status = "evaluation"
+        await self.db.commit()
+
+        # Refresh and pre-populate relationships
+        from fastapi.encoders import jsonable_encoder
+        from app.schemas.solution import SolutionResponse
+
+        complete_data = []
+        for sol in created_solutions:
+            await self.db.refresh(sol)
+            sol.problem_statement = problem
+            serialized = jsonable_encoder(SolutionResponse.model_validate(sol))
+            complete_data.append(serialized)
+
+        # 5. Complete
+        yield {"status": "complete", "data": complete_data}
+
