@@ -11,6 +11,11 @@ from app.schemas.session import (
     SessionResponse,
     MaturityLevelInfo,
 )
+from app.schemas.tech_stack import (
+    TechStackRegistry,
+    TechStackSearchResult,
+    TechStackPreference,
+)
 
 __all__ = [
     "UserCreate",
@@ -22,4 +27,7 @@ __all__ = [
     "SessionUpdate",
     "SessionResponse",
     "MaturityLevelInfo",
+    "TechStackRegistry",
+    "TechStackSearchResult",
+    "TechStackPreference",
 ]
