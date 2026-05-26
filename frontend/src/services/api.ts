@@ -1,6 +1,6 @@
 import axios from "axios";
-
 import { useAuthStore } from "../stores/authStore";
+import { useToastStore } from "../stores/toastStore";
 
 const apiClient = axios.create({
   baseURL: import.meta.env.VITE_API_URL || "http://localhost:8000",
@@ -21,7 +21,7 @@ apiClient.interceptors.request.use(
   (error) => Promise.reject(error)
 );
 
-// Response interceptor for token refresh
+// Response interceptor for token refresh & automatic error toast
 let isRefreshing = false;
 let failedQueue: any[] = [];
 
@@ -41,8 +41,12 @@ apiClient.interceptors.response.use(
   async (error) => {
     const originalRequest = error.config;
 
-    // Check if the error is 401 and request was not already retried
-    if (error.response?.status === 401 && !originalRequest._retry) {
+    // Check if it's a 401 error and it's not a retry and not already refreshing token request
+    if (
+      error.response?.status === 401 &&
+      !originalRequest._retry &&
+      !originalRequest.url?.includes("/auth/refresh")
+    ) {
       if (isRefreshing) {
         return new Promise((resolve, reject) => {
           failedQueue.push({ resolve, reject });
@@ -84,6 +88,24 @@ apiClient.interceptors.response.use(
         isRefreshing = false;
         return Promise.reject(refreshError);
       }
+    }
+
+    // Extract error details and trigger global toast notification
+    let errorMessage = "An unexpected error occurred. Please try again.";
+    if (error.response?.data?.detail) {
+      const detail = error.response.data.detail;
+      if (typeof detail === "string") {
+        errorMessage = detail;
+      } else if (Array.isArray(detail) && detail[0]?.msg) {
+        errorMessage = detail[0].msg;
+      }
+    } else if (error.message) {
+      errorMessage = error.message;
+    }
+
+    // Don't show toast for 401 token refresh errors to avoid double logout warnings
+    if (error.response?.status !== 401) {
+      useToastStore.getState().addToast("error", errorMessage);
     }
 
     return Promise.reject(error);

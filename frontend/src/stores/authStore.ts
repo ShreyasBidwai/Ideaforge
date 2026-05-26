@@ -1,6 +1,6 @@
 import { create } from "zustand";
-
 import { type User } from "../types/api";
+import authService from "../services/authService";
 
 interface AuthState {
   user: User | null;
@@ -8,11 +8,11 @@ interface AuthState {
   refreshToken: string | null;
   isAuthenticated: boolean;
   isLoading: boolean;
-  login: (accessToken: string, refreshToken: string, user: User) => void;
-  register: (accessToken: string, refreshToken: string, user: User) => void;
+  login: (email: string, password: string) => Promise<void>;
+  register: (email: string, password: string, fullName: string) => Promise<void>;
   logout: () => void;
   refreshAccessToken: (accessToken: string, refreshToken: string) => void;
-  fetchCurrentUser: (user: User) => void;
+  fetchCurrentUser: () => Promise<void>;
   setLoading: (isLoading: boolean) => void;
 }
 
@@ -36,30 +36,56 @@ export const useAuthStore = create<AuthState>((set) => ({
   refreshToken: storedRefreshToken,
   isAuthenticated: !!storedAccessToken,
   isLoading: false,
-  login: (accessToken, refreshToken, user) => {
-    localStorage.setItem("access_token", accessToken);
-    localStorage.setItem("refresh_token", refreshToken);
-    localStorage.setItem("user", JSON.stringify(user));
-    set({
-      accessToken,
-      refreshToken,
-      user,
-      isAuthenticated: true,
-      isLoading: false,
-    });
+
+  login: async (email, password) => {
+    set({ isLoading: true });
+    try {
+      const tokens = await authService.login({ email, password });
+      localStorage.setItem("access_token", tokens.access_token);
+      localStorage.setItem("refresh_token", tokens.refresh_token);
+      
+      set({
+        accessToken: tokens.access_token,
+        refreshToken: tokens.refresh_token,
+        isAuthenticated: true,
+      });
+
+      const user = await authService.getCurrentUser();
+      localStorage.setItem("user", JSON.stringify(user));
+      
+      set({ user, isLoading: false });
+    } catch (error) {
+      set({ isLoading: false });
+      throw error;
+    }
   },
-  register: (accessToken, refreshToken, user) => {
-    localStorage.setItem("access_token", accessToken);
-    localStorage.setItem("refresh_token", refreshToken);
-    localStorage.setItem("user", JSON.stringify(user));
-    set({
-      accessToken,
-      refreshToken,
-      user,
-      isAuthenticated: true,
-      isLoading: false,
-    });
+
+  register: async (email, password, fullName) => {
+    set({ isLoading: true });
+    try {
+      await authService.register({ email, password, full_name: fullName });
+      
+      // Auto login on success
+      const tokens = await authService.login({ email, password });
+      localStorage.setItem("access_token", tokens.access_token);
+      localStorage.setItem("refresh_token", tokens.refresh_token);
+
+      set({
+        accessToken: tokens.access_token,
+        refreshToken: tokens.refresh_token,
+        isAuthenticated: true,
+      });
+
+      const user = await authService.getCurrentUser();
+      localStorage.setItem("user", JSON.stringify(user));
+      
+      set({ user, isLoading: false });
+    } catch (error) {
+      set({ isLoading: false });
+      throw error;
+    }
   },
+
   logout: () => {
     localStorage.removeItem("access_token");
     localStorage.removeItem("refresh_token");
@@ -72,14 +98,33 @@ export const useAuthStore = create<AuthState>((set) => ({
       isLoading: false,
     });
   },
+
   refreshAccessToken: (accessToken, refreshToken) => {
     localStorage.setItem("access_token", accessToken);
     localStorage.setItem("refresh_token", refreshToken);
     set({ accessToken, refreshToken, isAuthenticated: true });
   },
-  fetchCurrentUser: (user) => {
-    localStorage.setItem("user", JSON.stringify(user));
-    set({ user, isAuthenticated: true });
+
+  fetchCurrentUser: async () => {
+    set({ isLoading: true });
+    try {
+      const user = await authService.getCurrentUser();
+      localStorage.setItem("user", JSON.stringify(user));
+      set({ user, isAuthenticated: true, isLoading: false });
+    } catch (error) {
+      localStorage.removeItem("access_token");
+      localStorage.removeItem("refresh_token");
+      localStorage.removeItem("user");
+      set({
+        accessToken: null,
+        refreshToken: null,
+        user: null,
+        isAuthenticated: false,
+        isLoading: false,
+      });
+      throw error;
+    }
   },
+
   setLoading: (isLoading) => set({ isLoading }),
 }));
