@@ -8,9 +8,10 @@ import EditProblemModal from "./EditProblemModal";
 
 interface ProblemStatementCardProps {
   problem: ProblemStatement;
+  actions?: React.ReactNode;
 }
 
-export const ProblemStatementCard: React.FC<ProblemStatementCardProps> = ({ problem }) => {
+export const ProblemStatementCard: React.FC<ProblemStatementCardProps> = ({ problem, actions }) => {
   const { selectProblem, archiveProblem, fetchProblems } = useProblemStore();
   const [showMenu, setShowMenu] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
@@ -162,6 +163,7 @@ export const ProblemStatementCard: React.FC<ProblemStatementCardProps> = ({ prob
               <span className="text-[7px] text-slate-500 -mt-0.5">SCORE</span>
             </div>
           </div>
+          {actions && <div className="mt-2 pt-3 border-t border-white/5">{actions}</div>}
         </div>
 
         {/* Footer */}

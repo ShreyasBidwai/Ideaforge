@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { type Session, type PainPoint } from "../types/api";
+import { type Session, type PainPoint, type ProblemStatement } from "../types/api";
 import { sessionService } from "../services/sessionService";
 import apiClient from "../services/api";
 
@@ -18,14 +18,17 @@ interface DiscoveryState {
   selectedMaturity: string;
   selectedTechStack: string[];
   maturityLevels: MaturityLevelInfo[];
+  generatedProblems: ProblemStatement[];
+  isGeneratingProblems: boolean;
   createAndDiscover: (industry: string, location: string, maturityLevel: string, techStack: string[]) => Promise<void>;
   clearSession: () => void;
   fetchMaturityLevels: () => Promise<void>;
   setSelectedMaturity: (maturity: string) => void;
   setSelectedTechStack: (techStack: string[]) => void;
+  generateProblems: (sessionId: string) => Promise<void>;
 }
 
-export const useDiscoveryStore = create<DiscoveryState>((set) => ({
+export const useDiscoveryStore = create<DiscoveryState>((set, get) => ({
   currentSession: null,
   painPoints: [],
   isDiscovering: false,
@@ -34,6 +37,8 @@ export const useDiscoveryStore = create<DiscoveryState>((set) => ({
   selectedMaturity: "mvp",
   selectedTechStack: [],
   maturityLevels: [],
+  generatedProblems: [],
+  isGeneratingProblems: false,
 
   createAndDiscover: async (industry: string, location: string, maturityLevel: string, techStack: string[]) => {
     set({ isDiscovering: true, error: null, painPoints: [], currentStep: "starting" });
@@ -92,6 +97,8 @@ export const useDiscoveryStore = create<DiscoveryState>((set) => ({
       isDiscovering: false,
       currentStep: "",
       error: null,
+      generatedProblems: [],
+      isGeneratingProblems: false,
     });
   },
 
@@ -111,6 +118,27 @@ export const useDiscoveryStore = create<DiscoveryState>((set) => ({
   setSelectedTechStack: (techStack: string[]) => {
     set({ selectedTechStack: techStack });
   },
+
+  generateProblems: async (sessionId: string) => {
+    set({ isGeneratingProblems: true, error: null });
+    try {
+      const { problemService } = await import("../services/problemService");
+      const problems = await problemService.generateProblems(sessionId);
+      
+      set((state) => ({
+        generatedProblems: problems,
+        isGeneratingProblems: false,
+        currentSession: state.currentSession
+          ? { ...state.currentSession, status: "solution_generation" }
+          : null,
+      }));
+    } catch (error: any) {
+      const errMsg = error?.response?.data?.detail || error?.message || "Failed to generate problem statements";
+      set({
+        isGeneratingProblems: false,
+        error: errMsg,
+      });
+      throw error;
+    }
+  },
 }));
-
-
