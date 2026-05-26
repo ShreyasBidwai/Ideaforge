@@ -9,6 +9,8 @@ import { sessionService } from "../services/sessionService";
 import SolutionCard from "../components/solutions/SolutionCard";
 import SolutionSkeleton from "../components/solutions/SolutionSkeleton";
 import GenerateSolutionsCTA from "../components/solutions/GenerateSolutionsCTA";
+import ViewToggle from "../components/solutions/ViewToggle";
+import SolutionComparison from "../components/solutions/SolutionComparison";
 import { type Session } from "../types/api";
 
 const SolutionWorkspace: React.FC = () => {
@@ -28,6 +30,7 @@ const SolutionWorkspace: React.FC = () => {
 
   const { addToast } = useToastStore();
   const [session, setSession] = useState<Session | null>(null);
+  const [view, setView] = useState<"cards" | "compare">("cards");
 
   useEffect(() => {
     if (problemId) {
@@ -144,6 +147,9 @@ const SolutionWorkspace: React.FC = () => {
           </div>
 
           <div className="flex items-center gap-3">
+            {solutionsCount > 0 && !isLoading && !isGenerating && (
+              <ViewToggle view={view} onChange={setView} />
+            )}
             <button
               onClick={handleRunEvaluation}
               disabled={solutionsCount === 0 || isLoading || isGenerating}
@@ -203,18 +209,22 @@ const SolutionWorkspace: React.FC = () => {
             isGenerating={isGenerating}
           />
         ) : (
-          <motion.div
-            variants={containerVariants}
-            initial="hidden"
-            animate="show"
-            className="space-y-6"
-          >
-            {solutions.map((solution) => (
-              <motion.div key={solution.id} variants={cardVariants}>
-                <SolutionCard solution={solution} />
-              </motion.div>
-            ))}
-          </motion.div>
+          view === "compare" ? (
+            <SolutionComparison solutions={solutions} />
+          ) : (
+            <motion.div
+              variants={containerVariants}
+              initial="hidden"
+              animate="show"
+              className="space-y-6"
+            >
+              {solutions.map((solution) => (
+                <motion.div key={solution.id} variants={cardVariants}>
+                  <SolutionCard solution={solution} />
+                </motion.div>
+              ))}
+            </motion.div>
+          )
         )}
 
         {/* Bottom Section — Evaluation Run Bar */}
