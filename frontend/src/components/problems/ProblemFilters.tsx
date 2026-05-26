@@ -1,5 +1,6 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { ArrowUpDown, Search, SlidersHorizontal, ChevronDown, ChevronUp } from "lucide-react";
+import { useDebounce } from "../../hooks/useDebounce";
 
 interface ProblemFiltersProps {
   industries: string[];
@@ -19,6 +20,18 @@ export const ProblemFilters: React.FC<ProblemFiltersProps> = ({
   onChange,
 }) => {
   const [isExpanded, setIsExpanded] = useState(false);
+  const [searchVal, setSearchVal] = useState(filters.search);
+  const debouncedSearch = useDebounce(searchVal, 300);
+
+  // Sync external filter changes (like resets) to local state
+  useEffect(() => {
+    setSearchVal(filters.search);
+  }, [filters.search]);
+
+  // Trigger search update when debounced value changes
+  useEffect(() => {
+    onChange({ search: debouncedSearch });
+  }, [debouncedSearch]);
 
   return (
     <div className="flex flex-col md:flex-row gap-4 items-stretch md:items-center justify-between bg-slate-900/40 p-4 border border-white/5 rounded-2xl backdrop-blur-md w-full">
@@ -31,8 +44,8 @@ export const ProblemFilters: React.FC<ProblemFiltersProps> = ({
           <input
             type="text"
             placeholder="Search problems..."
-            value={filters.search}
-            onChange={(e) => onChange({ search: e.target.value })}
+            value={searchVal}
+            onChange={(e) => setSearchVal(e.target.value)}
             className="w-full bg-slate-800/80 border border-white/5 rounded-xl pl-10 pr-4 py-2 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500/50 text-sm transition-all"
           />
         </div>

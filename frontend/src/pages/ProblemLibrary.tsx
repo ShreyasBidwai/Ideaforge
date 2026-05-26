@@ -5,6 +5,7 @@ import { useProblemStore } from "../stores/problemStore";
 import ProblemStatementCard from "../components/problems/ProblemStatementCard";
 import ProblemFilters from "../components/problems/ProblemFilters";
 import EmptyLibrary from "../components/problems/EmptyLibrary";
+import Skeleton from "../components/ui/Skeleton";
 
 export const ProblemLibrary: React.FC = () => {
   const {
@@ -117,9 +118,28 @@ export const ProblemLibrary: React.FC = () => {
 
         {/* Loading Indicator */}
         {isLoading ? (
-          <div className="flex flex-col items-center justify-center py-20 space-y-4">
-            <div className="w-10 h-10 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" />
-            <p className="text-slate-400 text-sm animate-pulse">Loading problem library...</p>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {[1, 2, 3, 4, 5, 6].map((i) => (
+              <div key={i} className="bg-slate-900/40 border border-white/5 rounded-2xl p-6 space-y-4">
+                <div className="flex justify-between items-start gap-4">
+                  <div className="space-y-2 flex-1">
+                    <Skeleton className="h-6 w-3/4" />
+                    <Skeleton className="h-4 w-1/3" />
+                  </div>
+                  <Skeleton className="h-6 w-12 rounded-full" />
+                </div>
+                <Skeleton className="h-16 w-full" />
+                <div className="flex flex-wrap gap-2 pt-2">
+                  <Skeleton className="h-5 w-16 rounded-full" />
+                  <Skeleton className="h-5 w-20 rounded-full" />
+                  <Skeleton className="h-5 w-24 rounded-full" />
+                </div>
+                <div className="flex justify-between items-center pt-4 border-t border-white/5">
+                  <Skeleton className="h-5 w-24" />
+                  <Skeleton className="h-9 w-28 rounded-xl" />
+                </div>
+              </div>
+            ))}
           </div>
         ) : filteredProblems.length === 0 ? (
           <EmptyLibrary />

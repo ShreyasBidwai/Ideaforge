@@ -21,6 +21,7 @@ import ErrorBoundary from "../components/ui/ErrorBoundary";
 import ErrorDisplay from "../components/ui/ErrorDisplay";
 import LoadingSpinner from "../components/ui/LoadingSpinner";
 import EmptyState from "../components/ui/EmptyState";
+import Skeleton from "../components/ui/Skeleton";
 
 const Dashboard: React.FC = () => {
   const navigate = useNavigate();
@@ -236,7 +237,7 @@ const Dashboard: React.FC = () => {
                 >
                   <div className="space-y-1">
                     <div className="text-3xl font-extrabold text-white">
-                      {isLoading ? <LoadingSpinner size="sm" variant="inline" /> : stat.value}
+                      {isLoading ? <Skeleton className="h-9 w-16" /> : stat.value}
                     </div>
                     <div className="text-sm text-slate-400">{stat.label}</div>
                   </div>
@@ -338,8 +339,16 @@ const Dashboard: React.FC = () => {
 
             <div className="bg-slate-900/40 border border-white/5 rounded-2xl p-6 shadow-xl space-y-4 min-h-[280px] flex flex-col justify-center">
               {isLoading ? (
-                <div className="flex items-center justify-center h-48">
-                  <LoadingSpinner message="Loading recent sessions..." />
+                <div className="space-y-4 w-full">
+                  {[1, 2, 3, 4].map((i) => (
+                    <div key={i} className="flex justify-between items-center py-2">
+                      <div className="space-y-2">
+                        <Skeleton className="h-5 w-40" />
+                        <Skeleton className="h-4 w-24" />
+                      </div>
+                      <Skeleton className="h-6 w-20 rounded-full" />
+                    </div>
+                  ))}
                 </div>
               ) : recentSessions.length === 0 ? (
                 <EmptyState
@@ -391,8 +400,16 @@ const Dashboard: React.FC = () => {
 
             <div className="bg-slate-900/40 border border-white/5 rounded-2xl p-6 shadow-xl space-y-4 min-h-[280px] flex flex-col justify-center">
               {isLoading ? (
-                <div className="flex items-center justify-center h-48">
-                  <LoadingSpinner message="Loading library problems..." />
+                <div className="space-y-4 w-full">
+                  {[1, 2, 3, 4].map((i) => (
+                    <div key={i} className="flex justify-between items-center py-2">
+                      <div className="space-y-2 max-w-[70%] w-full">
+                        <Skeleton className="h-5 w-48" />
+                        <Skeleton className="h-4 w-20" />
+                      </div>
+                      <Skeleton className="h-6 w-12 rounded-full" />
+                    </div>
+                  ))}
                 </div>
               ) : topProblems.length === 0 ? (
                 <EmptyState

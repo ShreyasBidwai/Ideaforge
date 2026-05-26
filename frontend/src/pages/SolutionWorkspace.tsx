@@ -96,7 +96,7 @@ const SolutionWorkspace: React.FC = () => {
 
   const cardVariants = {
     hidden: { opacity: 0, y: 20 },
-    show: { opacity: 1, y: 0, transition: { type: "spring", stiffness: 100 } }
+    show: { opacity: 1, y: 0, transition: { type: "spring" as const, stiffness: 100 } }
   };
 
   const solutionsCount = solutions.length;
@@ -248,7 +248,7 @@ const SolutionWorkspace: React.FC = () => {
               >
                 <Play className="w-5 h-5 fill-current" />
                 <span>
-                  {session && session.status !== "draft" ? "View Evaluation" : "Run Evaluation"}
+                  {session && (session.status === "evaluation" || session.status === "completed") ? "View Evaluation" : "Run Evaluation"}
                 </span>
               </button>
             </div>

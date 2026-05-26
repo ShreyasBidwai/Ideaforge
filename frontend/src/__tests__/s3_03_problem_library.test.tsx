@@ -7,7 +7,7 @@ const mockProblem = {
   description: 'Build a digital queue management system for hospitals to reduce patient wait times from 3+ hours to under 30 minutes.',
   target_user: 'Hospital administrators', core_pain: 'Long wait times',
   market_context: 'India healthcare $100B+', severity: 4, feasibility: 5,
-  market_size: 4, uniqueness: 3, overall_rating: 4.08, status: 'draft',
+  market_size: 4, uniqueness: 3, overall_rating: 4.08, status: 'draft' as const,
   created_at: '2026-05-26T10:00:00Z', updated_at: '2026-05-26T10:00:00Z',
   industry: 'Healthcare'
 };

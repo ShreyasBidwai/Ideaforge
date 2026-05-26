@@ -91,6 +91,9 @@ export interface ProblemStatement {
   status: 'draft' | 'selected' | 'archived';
   created_at: string;
   updated_at: string;
+  session?: Session;
+  industry?: string;
+  location?: string;
 }
 
 // ─── Solutions ───

@@ -29,10 +29,16 @@ const ComparisonMatrix: React.FC<ComparisonMatrixProps> = ({
     );
   }
 
-  const handleApprove = (solId: string) => {
+  const handleApprove = async (solId: string) => {
+    const previous = approvedSolutionId;
     setApprovedSolutionId(solId);
     setShowConfetti(true);
-    onApprove(solId);
+    try {
+      await onApprove(solId);
+    } catch (err) {
+      setApprovedSolutionId(previous);
+      setShowConfetti(false);
+    }
     setTimeout(() => {
       setShowConfetti(false);
     }, 2500);

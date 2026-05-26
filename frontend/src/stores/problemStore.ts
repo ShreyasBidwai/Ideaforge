@@ -80,20 +80,40 @@ export const useProblemStore = create<ProblemState>((set, get) => ({
   },
 
   selectProblem: async (id) => {
+    const previousProblems = get().problems;
+    // Optimistically update problem status
+    set({
+      problems: previousProblems.map((p) =>
+        p.id === id ? { ...p, status: "selected" } : p
+      ),
+    });
     try {
       await problemService.selectProblem(id);
       await get().fetchProblems();
     } catch (err) {
       console.error("Failed to select problem:", err);
+      // Revert on failure
+      set({ problems: previousProblems });
+      throw err;
     }
   },
 
   archiveProblem: async (id) => {
+    const previousProblems = get().problems;
+    const previousTotal = get().total;
+    // Optimistically remove from list and decrement count
+    set({
+      problems: previousProblems.filter((p) => p.id !== id),
+      total: Math.max(0, previousTotal - 1),
+    });
     try {
       await problemService.archiveProblem(id);
       await get().fetchProblems();
     } catch (err) {
       console.error("Failed to archive problem:", err);
+      // Revert on failure
+      set({ problems: previousProblems, total: previousTotal });
+      throw err;
     }
   },
 }));
