@@ -8,6 +8,7 @@ import MaturitySelector from "../components/discovery/MaturitySelector";
 import TechStackInput from "../components/discovery/TechStackInput";
 import PainPointCard from "../components/discovery/PainPointCard";
 import PainPointSkeleton from "../components/discovery/PainPointSkeleton";
+import StreamProgress from "../components/discovery/StreamProgress";
 import Input from "../components/ui/Input";
 
 export const Discovery: React.FC = () => {
@@ -16,6 +17,7 @@ export const Discovery: React.FC = () => {
     currentSession,
     painPoints,
     isDiscovering,
+    currentStep,
     error,
     createAndDiscover,
     clearSession,
@@ -165,11 +167,12 @@ export const Discovery: React.FC = () => {
           )}
 
           {isDiscovering ? (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <PainPointSkeleton />
-              <PainPointSkeleton />
-              <PainPointSkeleton />
-              <PainPointSkeleton />
+            <div className="space-y-8 animate-in fade-in duration-300">
+              <StreamProgress currentStep={currentStep} />
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <PainPointSkeleton />
+                <PainPointSkeleton />
+              </div>
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
