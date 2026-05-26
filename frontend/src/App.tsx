@@ -10,7 +10,7 @@ import Login from "./pages/Login";
 import Register from "./pages/Register";
 import ProblemLibrary from "./pages/ProblemLibrary";
 import SolutionWorkspace from "./pages/SolutionWorkspace";
-import ToastContainer from "./components/ui/Toast";
+import { ToastContainer } from "./components/ui/Toast";
 import { useAuthStore } from "./stores/authStore";
 
 const App: React.FC = () => {
