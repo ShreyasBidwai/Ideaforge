@@ -50,7 +50,7 @@ const AppShell: React.FC = () => {
             initial={{ opacity: 0, y: 12 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.2 }}
-            className="mx-auto max-w-7xl p-8"
+            className="mx-auto max-w-7xl p-4 sm:p-8"
           >
             <Outlet />
           </motion.div>

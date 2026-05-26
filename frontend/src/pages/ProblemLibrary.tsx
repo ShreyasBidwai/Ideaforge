@@ -150,7 +150,7 @@ export const ProblemLibrary: React.FC = () => {
                   <ChevronLeft className="w-5 h-5" />
                 </button>
 
-                <div className="flex items-center gap-1.5 px-3">
+                <div className="hidden sm:flex items-center gap-1.5 px-3">
                   <span className="text-white font-semibold">{page}</span>
                   <span className="text-slate-600">/</span>
                   <span className="text-slate-500">{totalPages}</span>

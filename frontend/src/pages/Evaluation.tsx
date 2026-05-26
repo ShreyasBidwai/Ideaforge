@@ -187,41 +187,50 @@ const Evaluation: React.FC = () => {
       {/* Main Container */}
       <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
         {/* Progress Bar / Steps */}
-        <div className="bg-slate-900 border border-white/5 rounded-2xl p-6 shadow-xl relative overflow-hidden">
-          <div className="flex justify-between items-center relative z-10">
+        <div className="bg-slate-900 border border-white/5 rounded-2xl p-4 sm:p-6 shadow-xl relative overflow-hidden">
+          <div className="flex flex-col sm:flex-row justify-between items-stretch sm:items-center gap-4 sm:gap-0 relative z-10">
             {stepsToShow.map((step, idx) => {
               const isCompleted = idx < activeIndex;
               const isActive = idx === activeIndex;
 
               return (
-                <div key={step.id} className="flex flex-col items-center flex-1 relative">
+                <div key={step.id} className="flex flex-row sm:flex-col items-center flex-1 relative gap-4 sm:gap-2">
                   {/* Step Circle */}
                   <button
                     disabled={!isCompleted && !isActive}
                     onClick={() => setStep(step.id as any)}
-                    className={`w-10 h-10 rounded-full flex items-center justify-center font-semibold text-sm transition-all relative z-10 border ${
+                    className={`w-8 h-8 sm:w-10 sm:h-10 rounded-full flex items-center justify-center font-semibold text-xs sm:text-sm transition-all relative z-10 border ${
                       isActive
-                        ? "bg-blue-600 border-blue-500 text-white shadow-lg shadow-blue-500/20 scale-110"
+                        ? "bg-blue-600 border-blue-500 text-white shadow-lg shadow-blue-500/20 scale-105 sm:scale-110"
                         : isCompleted
                         ? "bg-emerald-600 border-emerald-500 text-white"
                         : "bg-slate-950 border-white/5 text-slate-500"
                     }`}
                   >
-                    {isCompleted ? <Check className="w-5 h-5" /> : idx + 1}
+                    {isCompleted ? <Check className="w-4 h-4 sm:w-5 sm:h-5" /> : idx + 1}
                   </button>
 
                   <span
-                    className={`text-xs mt-2 font-medium transition-colors ${
+                    className={`text-sm sm:text-xs font-medium transition-colors ${
                       isActive ? "text-blue-400 font-bold" : isCompleted ? "text-emerald-400" : "text-slate-500"
                     }`}
                   >
                     {step.label}
                   </span>
 
-                  {/* Connecting Line */}
+                  {/* Horizontal Connector Line (Desktop) */}
                   {idx < stepsToShow.length - 1 && (
                     <div
-                      className={`absolute top-5 left-[50%] right-[-50%] h-[2px] z-0 transition-colors duration-300 ${
+                      className={`hidden sm:block absolute top-5 left-[50%] right-[-50%] h-[2px] z-0 transition-colors duration-300 ${
+                        idx < activeIndex ? "bg-emerald-600" : "bg-slate-950"
+                      }`}
+                    />
+                  )}
+
+                  {/* Vertical Connector Line (Mobile) */}
+                  {idx < stepsToShow.length - 1 && (
+                    <div
+                      className={`block sm:hidden absolute left-4 top-8 w-[2px] h-4 z-0 -translate-x-1/2 transition-colors duration-300 ${
                         idx < activeIndex ? "bg-emerald-600" : "bg-slate-950"
                       }`}
                     />
@@ -233,7 +242,7 @@ const Evaluation: React.FC = () => {
         </div>
 
         {/* Content Area */}
-        <div className="bg-slate-900/50 border border-white/5 rounded-3xl p-8 shadow-2xl backdrop-blur-sm min-h-[400px] flex flex-col justify-between">
+        <div className="bg-slate-900/50 border border-white/5 rounded-3xl p-4 sm:p-8 shadow-2xl backdrop-blur-sm min-h-[400px] flex flex-col justify-between">
           {isLoading && !rubric && !disqualifierResults && !scores ? (
             <div className="flex-1 flex flex-col items-center justify-center py-12 space-y-4">
               <div className="w-12 h-12 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" />

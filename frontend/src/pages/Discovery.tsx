@@ -132,7 +132,7 @@ export const Discovery: React.FC = () => {
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.4 }}
-          className="max-w-2xl mx-auto bg-slate-900/60 backdrop-blur-xl border border-white/5 rounded-3xl p-8 shadow-2xl relative overflow-hidden"
+          className="max-w-2xl mx-auto bg-slate-900/60 backdrop-blur-xl border border-white/5 rounded-3xl p-4 sm:p-8 shadow-2xl relative overflow-hidden"
         >
           {/* Decorative gradients */}
           <div className="absolute top-0 right-0 w-64 h-64 bg-blue-600/10 rounded-full blur-3xl -z-10" />
@@ -195,7 +195,7 @@ export const Discovery: React.FC = () => {
         // Results workspace
         <div className="space-y-8">
           {/* Header Bar */}
-          <div className="flex flex-wrap items-center justify-between gap-4 bg-slate-900/60 backdrop-blur-xl border border-white/5 rounded-2xl p-6 shadow-xl">
+          <div className="flex flex-wrap items-center justify-between gap-4 bg-slate-900/60 backdrop-blur-xl border border-white/5 rounded-2xl p-4 sm:p-6 shadow-xl">
             <div className="space-y-2">
               <div className="text-slate-400 text-xs font-semibold uppercase tracking-wider">Active Discovery Workspace</div>
               <div className="flex flex-wrap gap-2 items-center">

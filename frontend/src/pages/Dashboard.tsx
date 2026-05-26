@@ -198,7 +198,7 @@ const Dashboard: React.FC = () => {
           </div>
 
           {/* Stats Row */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 lg:gap-6">
             {[
               {
                 label: "Total Sessions",
@@ -232,7 +232,7 @@ const Dashboard: React.FC = () => {
                   initial={{ opacity: 0, y: 15 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ duration: 0.3, delay: i * 0.05 }}
-                  className="bg-slate-800/50 backdrop-blur-sm border border-white/5 p-6 rounded-2xl flex items-center justify-between shadow-lg hover:-translate-y-1 transition-transform duration-200"
+                  className="bg-slate-800/50 backdrop-blur-sm border border-white/5 p-4 sm:p-6 rounded-2xl flex items-center justify-between shadow-lg hover:-translate-y-1 transition-transform duration-200"
                 >
                   <div className="space-y-1">
                     <div className="text-3xl font-extrabold text-white">
@@ -254,7 +254,7 @@ const Dashboard: React.FC = () => {
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.4, delay: 0.2 }}
-          className="bg-gradient-to-r from-blue-600/10 to-purple-600/10 border border-blue-500/20 rounded-2xl p-6 relative overflow-hidden shadow-2xl"
+          className="bg-gradient-to-r from-blue-600/10 to-purple-600/10 border border-blue-500/20 rounded-2xl p-4 sm:p-6 relative overflow-hidden shadow-2xl"
         >
           <div className="absolute top-0 right-0 w-80 h-80 bg-blue-500/10 rounded-full blur-3xl -z-10" />
           <div className="absolute bottom-0 left-0 w-80 h-80 bg-purple-500/10 rounded-full blur-3xl -z-10" />
