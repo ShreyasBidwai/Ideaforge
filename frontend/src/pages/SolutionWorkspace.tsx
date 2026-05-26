@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { useParams, Link } from "react-router-dom";
+import { useParams, Link, useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import { ArrowLeft, Play, Award } from "lucide-react";
 
@@ -15,6 +15,7 @@ import { type Session } from "../types/api";
 
 const SolutionWorkspace: React.FC = () => {
   const { problemId } = useParams<{ problemId: string }>();
+  const navigate = useNavigate();
   const {
     solutions,
     currentProblem,
@@ -63,7 +64,9 @@ const SolutionWorkspace: React.FC = () => {
   };
 
   const handleRunEvaluation = () => {
-    addToast("info", "Initiating Evaluation Protocol...");
+    if (problemId) {
+      navigate(`/evaluation/${problemId}`);
+    }
   };
 
   const getEvaluationStepsText = (level?: string) => {

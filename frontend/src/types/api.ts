@@ -148,3 +148,53 @@ export interface Evaluation {
   status: 'pending' | 'in_progress' | 'completed';
   created_at: string;
 }
+
+export interface DisqualifierResult {
+  solution_title: string;
+  passed: boolean;
+  failed_disqualifiers: string[];
+  reasons: string[];
+}
+
+export interface ScoringResult {
+  solution_title: string;
+  criterion_scores: {
+    criterion: string;
+    score: number;
+    justification: string;
+  }[];
+  weighted_avg: number;
+  min_score: number;
+}
+
+export interface AttackResult {
+  solution_title: string;
+  attack: string;
+  severity: string;
+  survives: boolean;
+  survival_reasoning?: string;
+}
+
+export interface ACHResult {
+  solution_title: string;
+  inconsistencies: string[];
+  count: number;
+}
+
+export interface ComparisonEntry {
+  solution_id: string;
+  solution_title: string;
+  weighted_avg: number;
+  min_score: number;
+  attack_summary: string;
+  attack_survives: boolean;
+  inconsistency_count: number;
+}
+
+export interface ComparisonResult {
+  entries: ComparisonEntry[];
+  leaders: Record<string, string>;
+  is_clear_winner: boolean;
+  disagreements: string[];
+}
+
