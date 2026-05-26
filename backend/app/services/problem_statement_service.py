@@ -300,6 +300,43 @@ class ProblemStatementService:
         await self.db.refresh(ps)
         return ps
 
+    async def get_user_problem_industries(self, user_id: UUID) -> list[str]:
+        """Get unique list of industries the user has problem statements for"""
+        query = (
+            select(Session.industry)
+            .join(ProblemStatement)
+            .where(Session.user_id == user_id)
+            .distinct()
+        )
+        result = await self.db.execute(query)
+        return list(result.scalars().all())
+
+    async def archive_problem_statement(self, problem_id: UUID, user_id: UUID) -> ProblemStatement:
+        """Archive a problem statement (soft delete by setting status to 'archived')"""
+        result = await self.db.execute(
+            select(ProblemStatement)
+            .options(joinedload(ProblemStatement.session))
+            .where(ProblemStatement.id == problem_id)
+        )
+        ps = result.scalar_one_or_none()
+        
+        if ps is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Problem statement not found"
+            )
+            
+        if ps.session.user_id != user_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Forbidden: You do not own this problem statement"
+            )
+
+        ps.status = "archived"
+        await self.db.commit()
+        await self.db.refresh(ps)
+        return ps
+
     @staticmethod
     def compute_overall_rating(severity: float, feasibility: float, market_size: float, uniqueness: float) -> float:
         """Weighted average: severity*2 + feasibility*2 + market_size*1.5 + uniqueness*1 / 6.5"""

@@ -63,6 +63,15 @@ async def list_problems(
     )
     return result
 
+@router.get("/problem-statements/industries", response_model=list[str])
+async def get_industries(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    service = ProblemStatementService(None, db, None)
+    industries = await service.get_user_problem_industries(current_user.id)
+    return industries
+
 @router.get("/problem-statements/{id}", response_model=ProblemStatementResponse)
 async def get_single_problem(
     id: UUID,
@@ -107,3 +116,14 @@ async def select_problem(
     service = ProblemStatementService(None, db, None)
     ps = await service.select_problem_statement(id, current_user.id)
     return ps
+
+@router.delete("/problem-statements/{id}", response_model=ProblemStatementResponse)
+async def delete_problem(
+    id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    service = ProblemStatementService(None, db, None)
+    ps = await service.archive_problem_statement(id, current_user.id)
+    return ps
+
