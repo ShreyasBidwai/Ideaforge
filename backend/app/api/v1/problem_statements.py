@@ -1,5 +1,6 @@
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy.orm import joinedload
@@ -15,6 +16,7 @@ from app.schemas.problem_statement import (
 from app.services.problem_statement_service import ProblemStatementService
 from app.ai.provider import get_ai_provider, AIProvider
 from app.core.cache import CacheService
+from app.core.streaming import format_sse_event
 
 router = APIRouter(dependencies=[Depends(get_current_user)])
 
@@ -29,6 +31,35 @@ async def generate_problems(
     service = ProblemStatementService(ai_provider, db, cache)
     problems = await service.generate_problem_statements(session_id, current_user.id)
     return problems
+
+@router.post("/sessions/{session_id}/generate-problems/stream")
+async def generate_problems_stream(
+    session_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+    ai_provider: AIProvider = Depends(get_ai_provider),
+    cache: CacheService | None = Depends(get_cache)
+):
+    service = ProblemStatementService(ai_provider, db, cache)
+    # Validate session ownership and checks (raises early HTTPExceptions before streaming)
+    await service.validate_session_for_generation(session_id, current_user.id)
+
+    async def event_generator():
+        try:
+            async for step in service.generate_problem_statements_stream(session_id, current_user.id):
+                event_type = step["status"]
+                if event_type in ("analyzing", "generating", "rating", "saving"):
+                    sse_type = "progress"
+                elif event_type == "complete":
+                    sse_type = "complete"
+                else:
+                    sse_type = "progress"
+                yield format_sse_event(sse_type, step)
+        except Exception as e:
+            yield format_sse_event("error", {"status": "error", "message": str(e)})
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
+
 
 @router.get("/sessions/{session_id}/problem-statements", response_model=list[ProblemStatementResponse])
 async def get_session_problems(

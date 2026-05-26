@@ -120,23 +120,39 @@ export const useDiscoveryStore = create<DiscoveryState>((set, get) => ({
   },
 
   generateProblems: async (sessionId: string) => {
-    set({ isGeneratingProblems: true, error: null });
+    set({ isGeneratingProblems: true, error: null, currentStep: "starting" });
     try {
-      const { problemService } = await import("../services/problemService");
-      const problems = await problemService.generateProblems(sessionId);
+      const { streamProblems } = await import("../services/streamService");
       
-      set((state) => ({
-        generatedProblems: problems,
-        isGeneratingProblems: false,
-        currentSession: state.currentSession
-          ? { ...state.currentSession, status: "solution_generation" }
-          : null,
-      }));
+      await streamProblems(
+        sessionId,
+        (status, message) => {
+          set({ currentStep: status });
+        },
+        (problems) => {
+          set((state) => ({
+            generatedProblems: problems,
+            isGeneratingProblems: false,
+            currentStep: "complete",
+            currentSession: state.currentSession
+              ? { ...state.currentSession, status: "solution_generation" }
+              : null,
+          }));
+        },
+        (err) => {
+          set({
+            isGeneratingProblems: false,
+            error: err,
+            currentStep: "",
+          });
+        }
+      );
     } catch (error: any) {
       const errMsg = error?.response?.data?.detail || error?.message || "Failed to generate problem statements";
       set({
         isGeneratingProblems: false,
         error: errMsg,
+        currentStep: "",
       });
       throw error;
     }

@@ -9,7 +9,8 @@ interface ProblemGenerationProgressProps {
 const STEPS = [
   { key: "analyzing", label: "Analyzing pain points", description: "Mapping selected pain points for synthesis" },
   { key: "generating", label: "Generating problem statements", description: "Querying Gemini to frame structured problems" },
-  { key: "computing", label: "Computing ratings", description: "Estimating severity, feasibility, market size, and uniqueness" },
+  { key: "rating", label: "Computing ratings", description: "Estimating severity, feasibility, market size, and uniqueness" },
+  { key: "saving", label: "Saving to library", description: "Saving to your library" },
   { key: "complete", label: "Complete", description: "All problem statements synthesized successfully" },
 ];
 

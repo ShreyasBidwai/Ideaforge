@@ -42,8 +42,7 @@ it('should display generated problems', async () => {
     generatedProblems: [{
       id: 'p1', title: 'Digital Queue System', description: 'Build a queue system',
       severity: 4, feasibility: 5, market_size: 4, uniqueness: 3, overall_rating: 4.08,
-      status: 'draft', created_at: '2026-05-26T10:00:00Z', updated_at: '2026-05-26T10:00:00Z',
-      industry: 'Healthcare'
+      status: 'draft'
     }] as any,
     isDiscovering: false,
     isGeneratingProblems: false,
@@ -60,9 +59,7 @@ it('should have select and continue button on problem cards', async () => {
     currentSession: { id: '1', industry: 'Healthcare', location: 'India', status: 'solution_generation' } as any,
     generatedProblems: [{
       id: 'p1', title: 'Test Problem', description: 'Test', severity: 4, feasibility: 4,
-      market_size: 4, uniqueness: 3, overall_rating: 3.85, status: 'draft',
-      created_at: '2026-05-26T10:00:00Z', updated_at: '2026-05-26T10:00:00Z',
-      industry: 'Healthcare'
+      market_size: 4, uniqueness: 3, overall_rating: 3.85, status: 'draft'
     }] as any,
     painPoints: [{ name: 'Pain', description: 'Desc', severity: 5, affected_stakeholders: ['Users'], evidence: 'Data' }],
     isDiscovering: false, isGeneratingProblems: false,

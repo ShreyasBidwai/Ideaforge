@@ -1,7 +1,9 @@
 import json
 import logging
 from uuid import UUID
+from typing import AsyncGenerator
 from fastapi import HTTPException, status
+from fastapi.encoders import jsonable_encoder
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy import func
@@ -12,7 +14,7 @@ from app.ai.prompts.problem_statements import build_problem_statement_prompt
 from app.core.maturity import get_maturity_config, MaturityLevel
 from app.models.session import Session
 from app.models.problem_statement import ProblemStatement
-from app.schemas.problem_statement import ProblemStatementUpdate, ProblemStatementCreate
+from app.schemas.problem_statement import ProblemStatementUpdate, ProblemStatementCreate, ProblemStatementResponse
 from app.core.cache import CacheService
 
 logger = logging.getLogger(__name__)
@@ -23,20 +25,7 @@ class ProblemStatementService:
         self.db = db
         self.cache = cache
 
-    async def generate_problem_statements(self, session_id: UUID, user_id: UUID) -> list[ProblemStatement]:
-        """
-        1. Fetch session (validate ownership)
-        2. Get pain points from session.pain_points
-        3. Get maturity config from session.maturity_level
-        4. Build prompt
-        5. Call Gemini AI
-        6. Parse and validate response
-        7. Compute overall_rating for each: weighted avg (severity*2 + feasibility*2 + market_size*1.5 + uniqueness*1) / 6.5
-        8. Create ProblemStatement records in database
-        9. Update session status to "solution_generation"
-        10. Return created problem statements
-        """
-        # Fetch session
+    async def validate_session_for_generation(self, session_id: UUID, user_id: UUID) -> Session:
         result = await self.db.execute(
             select(Session)
             .where(Session.id == session_id)
@@ -60,6 +49,24 @@ class ProblemStatementService:
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="No pain points discovered yet. Discover pain points first."
             )
+            
+        return session
+
+    async def generate_problem_statements(self, session_id: UUID, user_id: UUID) -> list[ProblemStatement]:
+        """
+        1. Fetch session (validate ownership)
+        2. Get pain points from session.pain_points
+        3. Get maturity config from session.maturity_level
+        4. Build prompt
+        5. Call Gemini AI
+        6. Parse and validate response
+        7. Compute overall_rating for each: weighted avg (severity*2 + feasibility*2 + market_size*1.5 + uniqueness*1) / 6.5
+        8. Create ProblemStatement records in database
+        9. Update session status to "solution_generation"
+        10. Return created problem statements
+        """
+        # Fetch session and validate
+        session = await self.validate_session_for_generation(session_id, user_id)
 
         # Get maturity config
         maturity_level_enum = MaturityLevel(session.maturity_level)
@@ -168,6 +175,136 @@ class ProblemStatementService:
             ps.session = session
 
         return created_problems
+
+    async def generate_problem_statements_stream(self, session_id: UUID, user_id: UUID) -> AsyncGenerator[dict, None]:
+        # 1. Fetch & Validate Session
+        session = await self.validate_session_for_generation(session_id, user_id)
+        
+        # 2. Yield analyzing event
+        yield {"status": "analyzing", "message": "Analyzing discovered pain points..."}
+        
+        # 3. Yield generating event
+        yield {"status": "generating", "message": "Generating problem statements..."}
+
+        # Get maturity config
+        maturity_level_enum = MaturityLevel(session.maturity_level)
+        maturity_config = get_maturity_config(maturity_level_enum)
+
+        # Build prompt
+        system_prompt, user_prompt = build_problem_statement_prompt(
+            session.pain_points,
+            session.industry,
+            session.location,
+            maturity_config
+        )
+
+        response_schema = {
+            "type": "OBJECT",
+            "properties": {
+                "problem_statements": {
+                    "type": "ARRAY",
+                    "items": {
+                        "type": "OBJECT",
+                        "properties": {
+                            "title": {"type": "STRING"},
+                            "description": {"type": "STRING"},
+                            "target_user": {"type": "STRING"},
+                            "core_pain": {"type": "STRING"},
+                            "market_context": {"type": "STRING"},
+                            "severity": {"type": "INTEGER"},
+                            "feasibility": {"type": "INTEGER"},
+                            "market_size": {"type": "INTEGER"},
+                            "uniqueness": {"type": "INTEGER"}
+                        },
+                        "required": ["title", "description", "target_user", "core_pain", "market_context", "severity", "feasibility", "market_size", "uniqueness"]
+                    }
+                }
+            },
+            "required": ["problem_statements"]
+        }
+
+        parsed = None
+        try:
+            raw_response = await self.ai.generate(
+                prompt=user_prompt,
+                system_prompt=system_prompt,
+                response_schema=response_schema,
+                temperature=maturity_config.temperature
+            )
+            data = json.loads(raw_response)
+            parsed = data.get("problem_statements", [])
+        except Exception as e:
+            # Retry once with error context
+            retry_prompt = (
+                f"{user_prompt}\n\n"
+                f"Your previous response failed validation with error: {str(e)}.\n"
+                f"Please correct any issues and return ONLY valid JSON matching the schema."
+            )
+            try:
+                raw_response = await self.ai.generate(
+                    prompt=retry_prompt,
+                    system_prompt=system_prompt,
+                    response_schema=response_schema,
+                    temperature=maturity_config.temperature
+                )
+                data = json.loads(raw_response)
+                parsed = data.get("problem_statements", [])
+            except Exception as retry_err:
+                raise HTTPException(
+                    status_code=status.HTTP_502_BAD_GATEWAY,
+                    detail=f"AI generation failed validation: {str(retry_err)}"
+                )
+
+        # 4. Yield rating event
+        yield {"status": "rating", "message": "Computing ratings and weighted scores..."}
+
+        created_problems = []
+        for item in parsed:
+            # Validate values ge=1, le=5
+            sev = float(max(1, min(5, item["severity"])))
+            feas = float(max(1, min(5, item["feasibility"])))
+            mkt = float(max(1, min(5, item["market_size"])))
+            uniq = float(max(1, min(5, item["uniqueness"])))
+
+            overall = self.compute_overall_rating(sev, feas, mkt, uniq)
+            
+            db_ps = ProblemStatement(
+                session_id=session.id,
+                title=item["title"],
+                description=item["description"],
+                target_user=item.get("target_user"),
+                core_pain=item.get("core_pain"),
+                market_context=item.get("market_context"),
+                severity=sev,
+                feasibility=feas,
+                market_size=mkt,
+                uniqueness=uniq,
+                overall_rating=overall,
+                status="draft"
+            )
+            self.db.add(db_ps)
+            created_problems.append(db_ps)
+
+        # 5. Yield saving event
+        yield {"status": "saving", "message": "Saving to your library..."}
+
+        # Update session status
+        session.status = "solution_generation"
+        await self.db.commit()
+
+        # Refresh objects
+        serialized_problems = []
+        for ps in created_problems:
+            await self.db.refresh(ps)
+            # Pre-populate relationship object to avoid LazyLoad error on serialization
+            ps.session = session
+            # Serialize the response schema
+            serialized = jsonable_encoder(ProblemStatementResponse.model_validate(ps))
+            serialized_problems.append(serialized)
+
+        # 6. Yield complete event
+        yield {"status": "complete", "data": serialized_problems}
+
 
     async def get_problem_statements_by_session(self, session_id: UUID, user_id: UUID) -> list[ProblemStatement]:
         """Get all problem statements for a session"""

@@ -43,7 +43,6 @@ export const Discovery: React.FC = () => {
   const [location, setLocation] = useState("");
   const [errors, setErrors] = useState<{ industry?: string; location?: string }>({});
   const [viewMode, setViewMode] = useState<"pain_points" | "problems">("pain_points");
-  const [genStep, setGenStep] = useState("analyzing");
 
   useEffect(() => {
     fetchMaturityLevels();
@@ -55,19 +54,6 @@ export const Discovery: React.FC = () => {
       setViewMode("problems");
     }
   }, [generatedProblems]);
-
-  // Simulate progress step updates for the block-based problem statements generation
-  useEffect(() => {
-    if (isGeneratingProblems) {
-      setGenStep("analyzing");
-      const t1 = setTimeout(() => setGenStep("generating"), 1500);
-      const t2 = setTimeout(() => setGenStep("computing"), 3500);
-      return () => {
-        clearTimeout(t1);
-        clearTimeout(t2);
-      };
-    }
-  }, [isGeneratingProblems]);
 
   const handleStartDiscovery = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -248,7 +234,7 @@ export const Discovery: React.FC = () => {
           ) : isGeneratingProblems ? (
             // Phase 3: Loading Problem Synthesizer
             <div className="py-12 animate-in fade-in duration-300">
-              <ProblemGenerationProgress currentStep={genStep} />
+              <ProblemGenerationProgress currentStep={currentStep} />
             </div>
           ) : viewMode === "problems" && generatedProblems.length > 0 ? (
             // Phase 3: Generated Problem Statements List
