@@ -8,7 +8,8 @@ from app.core.database import get_db
 from app.models import User
 from app.schemas.solution import (
     SolutionResponse,
-    SolutionStatusUpdate
+    SolutionStatusUpdate,
+    SolutionUpdate
 )
 from app.services.solution_service import SolutionService
 from app.ai.provider import get_ai_provider, AIProvider
@@ -95,4 +96,16 @@ async def update_solution_status(
 ):
     service = SolutionService(None, db)
     solution = await service.update_solution_status(id, current_user.id, data.status)
+    return solution
+
+@router.patch("/solutions/{id}", response_model=SolutionResponse)
+async def update_solution(
+    id: UUID,
+    data: SolutionUpdate,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    service = SolutionService(None, db)
+    update_dict = data.model_dump(exclude_unset=True)
+    solution = await service.update_solution(id, current_user.id, update_dict)
     return solution

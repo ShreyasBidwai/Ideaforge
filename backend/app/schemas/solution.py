@@ -62,3 +62,12 @@ class SolutionListResponse(BaseModel):
 
 class SolutionStatusUpdate(BaseModel):
     status: str
+
+class SolutionUpdate(BaseModel):
+    tech_stack: list[str] | None = None
+    title: str | None = None
+    description: str | None = None
+    mechanism: str | None = None
+    target_user: str | None = None
+    revenue_model: str | None = None
+

@@ -14,6 +14,7 @@ interface SolutionState {
   fetchSolutions: (problemId: string) => Promise<void>;
   generateSolutions: (problemId: string) => Promise<void>;
   approveSolution: (solutionId: string) => Promise<void>;
+  updateSolution: (solutionId: string, updates: Partial<Solution>) => Promise<void>;
   clearSolutions: () => void;
 }
 
@@ -96,6 +97,20 @@ export const useSolutionStore = create<SolutionState>((set, get) => ({
       set({
         isLoading: false,
         error: err.response?.data?.detail || "Failed to approve solution"
+      });
+    }
+  },
+
+  updateSolution: async (solutionId: string, updates: Partial<Solution>) => {
+    try {
+      const res = await apiClient.patch<Solution>(`/api/v1/solutions/${solutionId}`, updates);
+      const updatedSolutions = get().solutions.map((sol) =>
+        sol.id === solutionId ? res.data : sol
+      );
+      set({ solutions: updatedSolutions });
+    } catch (err: any) {
+      set({
+        error: err.response?.data?.detail || "Failed to update solution"
       });
       throw err;
     }

@@ -1,12 +1,16 @@
 import React from "react";
 import { Users, DollarSign } from "lucide-react";
 import { type Solution } from "../../types/api";
+import { useSolutionStore } from "../../stores/solutionStore";
+import TechStackEditor from "./TechStackEditor";
 
 interface SolutionCardProps {
   solution: Solution;
 }
 
 const SolutionCard: React.FC<SolutionCardProps> = ({ solution }) => {
+  const { updateSolution } = useSolutionStore();
+  
   const getStatusColor = (status: string) => {
     switch (status) {
       case "candidate":
@@ -63,19 +67,15 @@ const SolutionCard: React.FC<SolutionCardProps> = ({ solution }) => {
         </div>
       )}
 
-      {/* Tech Stack Tags */}
-      {solution.tech_stack && solution.tech_stack.length > 0 && (
-        <div className="flex flex-wrap gap-2 mb-6">
-          {solution.tech_stack.map((tech, idx) => (
-            <span
-              key={idx}
-              className="bg-slate-700/50 text-slate-300 text-sm px-3 py-1 rounded-lg border border-white/5"
-            >
-              {tech}
-            </span>
-          ))}
-        </div>
-      )}
+      {/* Tech Stack Section */}
+      <div className="mb-6">
+        <TechStackEditor
+          techStack={solution.tech_stack || []}
+          onSave={async (updatedTechStack) => {
+            await updateSolution(solution.id, { tech_stack: updatedTechStack });
+          }}
+        />
+      </div>
 
       {/* Bottom Row */}
       <div className="flex flex-wrap items-center gap-6 pt-4 border-t border-white/5 text-sm text-slate-400">

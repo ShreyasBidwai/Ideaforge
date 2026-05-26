@@ -242,6 +242,16 @@ class SolutionService:
         await self.db.refresh(sol)
         return sol
 
+    async def update_solution(self, solution_id: UUID, user_id: UUID, update_data: dict) -> Solution:
+        """Update arbitrary solution fields (primarily tech_stack)"""
+        sol = await self.get_solution(solution_id, user_id)
+        for key, value in update_data.items():
+            if value is not None:
+                setattr(sol, key, value)
+        await self.db.commit()
+        await self.db.refresh(sol)
+        return sol
+
     async def validate_problem_for_generation(self, problem_id: UUID, user_id: UUID) -> ProblemStatement:
         result = await self.db.execute(
             select(ProblemStatement)
