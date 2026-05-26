@@ -14,6 +14,10 @@ import StreamProgress from "../components/discovery/StreamProgress";
 import ProblemGenerationProgress from "../components/discovery/ProblemGenerationProgress";
 import ProblemStatementCard from "../components/problems/ProblemStatementCard";
 import Input from "../components/ui/Input";
+import ErrorBoundary from "../components/ui/ErrorBoundary";
+import ErrorDisplay from "../components/ui/ErrorDisplay";
+import LoadingSpinner from "../components/ui/LoadingSpinner";
+import EmptyState from "../components/ui/EmptyState";
 
 export const Discovery: React.FC = () => {
   const navigate = useNavigate();
@@ -103,8 +107,25 @@ export const Discovery: React.FC = () => {
 
   const showResults = currentSession !== null || isDiscovering;
 
+  if (error) {
+    return (
+      <ErrorBoundary>
+        <ErrorDisplay
+          title="Discovery Error"
+          message={error}
+          onRetry={() => {
+            clearSession();
+            setViewMode("pain_points");
+          }}
+          showHome
+        />
+      </ErrorBoundary>
+    );
+  }
+
   return (
-    <div className="w-full max-w-6xl mx-auto px-4 py-8">
+    <ErrorBoundary>
+      <div className="w-full max-w-6xl mx-auto px-4 py-8">
       {!showResults ? (
         // Phase 1: Input Form
         <motion.div
@@ -314,7 +335,8 @@ export const Discovery: React.FC = () => {
           )}
         </div>
       )}
-    </div>
+      </div>
+    </ErrorBoundary>
   );
 };
 

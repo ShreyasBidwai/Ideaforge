@@ -9,6 +9,7 @@ interface DashboardState {
   recentSessions: Session[];
   topProblems: ProblemStatement[];
   isLoading: boolean;
+  error: string | null;
   fetchDashboardData: () => Promise<void>;
 }
 
@@ -17,8 +18,9 @@ export const useDashboardStore = create<DashboardState>((set) => ({
   recentSessions: [],
   topProblems: [],
   isLoading: false,
+  error: null,
   fetchDashboardData: async () => {
-    set({ isLoading: true });
+    set({ isLoading: true, error: null });
     try {
       // Fetch stats
       const statsRes = await apiClient.get("/api/v1/dashboard/stats");
@@ -44,7 +46,7 @@ export const useDashboardStore = create<DashboardState>((set) => ({
       set({ stats, recentSessions, topProblems, isLoading: false });
     } catch (error) {
       console.error("Error loading dashboard data:", error);
-      set({ isLoading: false });
+      set({ isLoading: false, error: "Failed to load dashboard data. Please check your connection and try again." });
     }
   },
 }));

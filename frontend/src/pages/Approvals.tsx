@@ -12,6 +12,10 @@ import {
 } from "lucide-react";
 import apiClient from "../services/api";
 import { useToastStore } from "../stores/toastStore";
+import ErrorBoundary from "../components/ui/ErrorBoundary";
+import ErrorDisplay from "../components/ui/ErrorDisplay";
+import LoadingSpinner from "../components/ui/LoadingSpinner";
+import EmptyState from "../components/ui/EmptyState";
 
 interface ApprovedSolution {
   id: string;
@@ -42,14 +46,17 @@ const Approvals: React.FC = () => {
   const { addToast } = useToastStore();
   const [approvals, setApprovals] = useState<ApprovedSolution[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   const fetchApprovals = async () => {
     setIsLoading(true);
+    setError(null);
     try {
       const response = await apiClient.get<ApprovedSolution[]>("/api/v1/approvals");
       setApprovals(response.data || []);
     } catch (err) {
       console.error("Failed to load approved solutions:", err);
+      setError("Failed to load approved solutions. Please check your connection and try again.");
       addToast("error", "Failed to fetch approved solutions");
     } finally {
       setIsLoading(false);
@@ -80,61 +87,57 @@ const Approvals: React.FC = () => {
     });
   };
 
+  if (error) {
+    return (
+      <ErrorBoundary>
+        <ErrorDisplay
+          title="Approvals Error"
+          message={error}
+          onRetry={fetchApprovals}
+          showHome
+        />
+      </ErrorBoundary>
+    );
+  }
+
   return (
-    <div className="w-full max-w-5xl mx-auto px-4 py-8 space-y-8 text-white">
-      {/* Header section */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-white/5 pb-6">
-        <div className="space-y-1">
-          <div className="flex items-center gap-2.5">
-            <CheckCircle className="text-emerald-500 w-7 h-7" />
-            <h1 className="text-3xl font-extrabold tracking-tight bg-gradient-to-r from-white via-slate-200 to-slate-400 bg-clip-text text-transparent">
-              Approved Solutions
-            </h1>
-          </div>
-          <p className="text-slate-400 text-sm">
-            Solutions approved for Phase 2 — architecture docs, PRDs, and technical specifications
-          </p>
-        </div>
-
-        <div>
-          <span className="bg-emerald-500/15 text-emerald-400 border border-emerald-500/25 text-xs font-bold px-4 py-2 rounded-full uppercase tracking-wider">
-            {isLoading ? "..." : approvals.length} Approved
-          </span>
-        </div>
-      </div>
-
-      {/* Main content list */}
-      {isLoading ? (
-        <div className="flex items-center justify-center py-20 text-slate-500">
-          Loading approved solutions...
-        </div>
-      ) : approvals.length === 0 ? (
-        /* Empty State */
-        <motion.div
-          initial={{ opacity: 0, y: 15 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="flex flex-col items-center justify-center text-center py-16 px-4 bg-slate-900/40 border border-white/5 rounded-3xl shadow-xl space-y-5"
-        >
-          <div className="w-16 h-16 bg-slate-800/80 rounded-2xl flex items-center justify-center border border-white/5 text-slate-500">
-            <CheckCircle size={32} />
-          </div>
-          <div className="space-y-2 max-w-md">
-            <h3 className="text-lg font-bold text-white">No approved solutions yet</h3>
-            <p className="text-slate-400 text-sm leading-relaxed">
-              Complete an evaluation and approve a solution to see it here
+    <ErrorBoundary>
+      <div className="w-full max-w-5xl mx-auto px-4 py-8 space-y-8 text-white">
+        {/* Header section */}
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-white/5 pb-6">
+          <div className="space-y-1">
+            <div className="flex items-center gap-2.5">
+              <CheckCircle className="text-emerald-500 w-7 h-7" />
+              <h1 className="text-3xl font-extrabold tracking-tight bg-gradient-to-r from-white via-slate-200 to-slate-400 bg-clip-text text-transparent">
+                Approved Solutions
+              </h1>
+            </div>
+            <p className="text-slate-400 text-sm">
+              Solutions approved for Phase 2 — architecture docs, PRDs, and technical specifications
             </p>
           </div>
-          <button
-            onClick={() => navigate("/discovery")}
-            className="px-6 py-3 bg-blue-600 hover:bg-blue-500 text-white font-semibold rounded-xl text-sm shadow-lg shadow-blue-600/20 hover:shadow-blue-500/30 transition-all flex items-center gap-2 hover:-translate-y-0.5 active:translate-y-0"
-          >
-            <span>Start Discovery</span>
-            <ArrowRight size={16} />
-          </button>
-        </motion.div>
-      ) : (
-        /* Vertical Cards Stack */
-        <div className="flex flex-col gap-6">
+
+          <div>
+            <span className="bg-emerald-500/15 text-emerald-400 border border-emerald-500/25 text-xs font-bold px-4 py-2 rounded-full uppercase tracking-wider">
+              {isLoading ? <LoadingSpinner size="sm" variant="inline" /> : approvals.length} Approved
+            </span>
+          </div>
+        </div>
+
+        {/* Main content list */}
+        {isLoading ? (
+          <LoadingSpinner message="Loading approved solutions..." />
+        ) : approvals.length === 0 ? (
+          <EmptyState
+            icon={CheckCircle}
+            title="No approved solutions yet"
+            message="Complete an evaluation and approve a solution to see it here"
+            actionLabel="Start Discovery"
+            onAction={() => navigate("/discovery")}
+          />
+        ) : (
+          /* Vertical Cards Stack */
+          <div className="flex flex-col gap-6">
           <AnimatePresence mode="popLayout">
             {approvals.map((sol, index) => (
               <motion.div
@@ -286,7 +289,8 @@ const Approvals: React.FC = () => {
           </AnimatePresence>
         </div>
       )}
-    </div>
+      </div>
+    </ErrorBoundary>
   );
 };
 
