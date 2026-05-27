@@ -32,6 +32,8 @@ from app.schemas.evaluation import (
 from app.schemas.project import (
     ProjectResponse,
     DocumentResponse,
+    SprintResponse,
+    SprintTaskResponse,
 )
 
 __all__ = [
@@ -58,4 +60,6 @@ __all__ = [
     "EvaluationResponse",
     "ProjectResponse",
     "DocumentResponse",
+    "SprintResponse",
+    "SprintTaskResponse",
 ]

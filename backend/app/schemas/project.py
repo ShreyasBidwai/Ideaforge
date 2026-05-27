@@ -31,3 +31,32 @@ class ProjectResponse(BaseModel):
     updated_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
+
+class SprintTaskResponse(BaseModel):
+    id: UUID
+    sprint_id: UUID
+    task_number: int
+    name: str
+    prompt: str
+    status: str
+    test_command: str | None = None
+    test_count: int = 0
+    tests_passed: int = 0
+    tests_failed: int = 0
+    retry_count: int = 0
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+class SprintResponse(BaseModel):
+    id: UUID
+    project_id: UUID
+    sprint_number: int
+    name: str
+    description: str | None = None
+    status: str
+    created_at: datetime
+    tasks: list[SprintTaskResponse] = []
+
+    model_config = ConfigDict(from_attributes=True)
+

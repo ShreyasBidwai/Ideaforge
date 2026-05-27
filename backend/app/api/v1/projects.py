@@ -9,8 +9,11 @@ from app.core.database import get_db
 from app.models import User, Solution, ProblemStatement, Session
 from app.models.project import Project
 from app.models.document import Document
-from app.schemas.project import ProjectResponse, DocumentResponse
+from app.models.sprint import Sprint
+from app.models.sprint_task import SprintTask
+from app.schemas.project import ProjectResponse, DocumentResponse, SprintResponse, SprintTaskResponse
 from app.services.doc_generation_service import DocGenerationService
+from app.services.sprint_generation_service import SprintGenerationService
 from app.ai.provider import get_ai_provider, AIProvider
 
 router = APIRouter(dependencies=[Depends(get_current_user)])
@@ -130,3 +133,54 @@ async def get_project_document(
     if not doc:
         raise HTTPException(status_code=404, detail="Document not found")
     return doc
+
+@router.post("/projects/{id}/generate-sprints", response_model=list[SprintResponse])
+async def generate_sprints(
+    id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+    ai_provider: AIProvider = Depends(get_ai_provider)
+):
+    service = SprintGenerationService(ai_provider, db)
+    return await service.generate_sprints(id, current_user.id)
+
+@router.get("/projects/{id}/sprints", response_model=list[SprintResponse])
+async def list_project_sprints(
+    id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    service = SprintGenerationService(None, db)
+    return await service.get_sprints(id, current_user.id)
+
+@router.get("/projects/{id}/sprints/{sprint_id}/tasks", response_model=list[SprintTaskResponse])
+async def list_sprint_tasks(
+    id: UUID,
+    sprint_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    # Verify project belongs to user
+    stmt_proj = select(Project).where(Project.id == id, Project.user_id == current_user.id)
+    proj_res = await db.execute(stmt_proj)
+    if not proj_res.scalars().first():
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    # Verify sprint belongs to project
+    stmt_sprint = select(Sprint).where(Sprint.id == sprint_id, Sprint.project_id == id)
+    sprint_res = await db.execute(stmt_sprint)
+    if not sprint_res.scalars().first():
+        raise HTTPException(status_code=404, detail="Sprint not found")
+
+    stmt = select(SprintTask).where(SprintTask.sprint_id == sprint_id).order_by(SprintTask.task_number.asc())
+    res = await db.execute(stmt)
+    return res.scalars().all()
+
+@router.get("/tasks/{task_id}", response_model=SprintTaskResponse)
+async def get_task(
+    task_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    service = SprintGenerationService(None, db)
+    return await service.get_task(task_id, current_user.id)
