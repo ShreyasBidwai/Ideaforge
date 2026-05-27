@@ -1,7 +1,8 @@
 import React, { useEffect, useState, useMemo } from "react";
 import { Folder, Loader2 } from "lucide-react";
 import apiClient from "../../services/api";
-import FileTree, { FileNode } from "./FileTree";
+import FileTree from "./FileTree";
+import type { FileNode } from "./FileTree";
 import CodeViewer from "./CodeViewer";
 
 interface FileBrowserProps {

@@ -40,7 +40,7 @@ class GeminiProvider(AIProvider):
         system_prompt: str,
         response_schema: Optional[Dict[str, Any]] = None,
         temperature: float = 0.7,
-        max_tokens: int = 4096,
+        max_tokens: int = 8192,
     ) -> str:
         config_kwargs: Dict[str, Any] = {
             "temperature": temperature,

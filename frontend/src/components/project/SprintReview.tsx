@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import { ChevronDown, ChevronRight, Edit2, Play, AlertTriangle, AlertCircle, CheckCircle2, Gauge, Sparkles } from 'lucide-react';
 
+import type { Sprint as ApiSprint, SprintTask as ApiSprintTask } from '../../types/api';
+
 interface ValidationResults {
   is_valid: boolean;
   warnings: string[];
@@ -8,21 +10,11 @@ interface ValidationResults {
   score: number;
 }
 
-interface Task {
-  id: string;
-  task_number: number;
-  name: string;
-  prompt: string;
-  status: string;
-  test_command?: string;
+interface Task extends ApiSprintTask {
   validation_results?: ValidationResults;
 }
 
-interface Sprint {
-  id: string;
-  sprint_number: number;
-  name: string;
-  status: string;
+interface Sprint extends Omit<ApiSprint, 'tasks'> {
   tasks: Task[];
 }
 

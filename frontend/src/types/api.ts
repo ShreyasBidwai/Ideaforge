@@ -216,6 +216,7 @@ export interface Project {
   project_dir: string | null;
   created_at: string;
   updated_at: string;
+  documents?: Document[];
 }
 
 export interface Document {
@@ -253,6 +254,8 @@ export interface SprintTask {
   tests_failed: number;
   retry_count: number;
   created_at: string;
+  error_output?: string | null;
+  rate_limit_reset_at?: string | null;
 }
 
 export interface BuildLogEntry {

@@ -510,7 +510,7 @@ class EvaluationService:
                                     "type": "OBJECT",
                                     "properties": {
                                         "criterion": {"type": "STRING"},
-                                        "score": {"type": "INTEGER"},
+                                        "score": {"type": "NUMBER"},
                                         "justification": {"type": "STRING"}
                                     },
                                     "required": ["criterion", "score", "justification"]
@@ -529,13 +529,20 @@ class EvaluationService:
                 prompt=user_prompt,
                 system_prompt=system_prompt,
                 response_schema=response_schema,
-                temperature=0.1
+                temperature=0.1,
+                max_tokens=16000,
             )
-            data = json.loads(raw_response)
         except Exception as e:
             raise HTTPException(
                 status_code=status.HTTP_502_BAD_GATEWAY,
                 detail=f"AI generation failed for scoring: {str(e)}"
+            )
+        try:
+            data = json.loads(raw_response)
+        except Exception as e:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=f"AI scoring response was truncated or malformed — JSON error: {str(e)}"
             )
 
         scores_list = data.get("scores", [])
@@ -766,7 +773,7 @@ class EvaluationService:
                                 "type": "ARRAY",
                                 "items": {"type": "STRING"}
                             },
-                            "count": {"type": "INTEGER"}
+                            "count": {"type": "NUMBER"}
                         },
                         "required": ["solution_title", "inconsistencies", "count"]
                     }

@@ -40,6 +40,7 @@ export const useBuildStore = create<BuildState>((set, get) => ({
   rateLimitInfo: null,
   isConnected: false,
   docGenerationProgress: null,
+  sprintGenerationProgress: null,
   queuePosition: null,
   failureDetails: null,
 

@@ -1,7 +1,9 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 
-const mockTree = {
+import type { FileNode } from '../components/project/FileTree';
+
+const mockTree: FileNode = {
   name: 'my-project', type: 'directory', children: [
     { name: 'backend', type: 'directory', children: [
       { name: 'app', type: 'directory', children: [
