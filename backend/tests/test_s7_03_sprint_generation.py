@@ -103,3 +103,40 @@ async def test_project_status_after_sprints(client, auth_headers, mock_gemini):
     
     proj = await client.get(f"/api/v1/projects/{proj_id}", headers=auth_headers)
     assert proj.json()["status"] == "doc_review"
+
+
+def test_clean_json_response():
+    """Verify that clean_json_response successfully cleans raw markdown and wrapping text"""
+    from app.services.sprint_generation_service import clean_json_response
+    
+    # 1. Plain clean JSON
+    plain = '{"sprints": []}'
+    assert clean_json_response(plain) == plain
+    
+    # 2. Wrapped in markdown code block
+    markdown = '```json\n{"sprints": []}\n```'
+    assert clean_json_response(markdown) == plain
+    
+    # 3. Code block without json language identifier
+    markdown_plain = '```\n{"sprints": []}\n```'
+    assert clean_json_response(markdown_plain) == plain
+    
+    # 4. Text prefix and suffix
+    text_wrapped = 'Here is the plan: {"sprints": []} Hope it helps!'
+    assert clean_json_response(text_wrapped) == plain
+
+    # 5. Absurdly large hallucinated numbers (Gemini bug)
+    import json
+    huge_num = '{"sprints": [], "total_tasks": ' + '5' * 500 + '}'
+    cleaned = clean_json_response(huge_num)
+    parsed = json.loads(cleaned)  # must not raise
+    assert parsed["total_tasks"] == 0
+    assert parsed["sprints"] == []
+
+    # 6. Raw newlines and tabs inside string fields
+    raw_newlines = '{"sprints": [], "prompt": "Hello\nWorld\twith\ttabs\rhere"}'
+    cleaned_raw = clean_json_response(raw_newlines)
+    parsed_raw = json.loads(cleaned_raw)
+    assert parsed_raw["prompt"] == "Hello\nWorld\twith\ttabs\rhere"
+
+

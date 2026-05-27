@@ -522,6 +522,17 @@ async def approve_everything_and_build(
             detail="All documents must be approved before triggering build"
         )
 
+    # Verify that sprint plan and tasks have been generated
+    from app.models import Sprint
+    stmt_sprints = select(Sprint).where(Sprint.project_id == id)
+    res_sprints = await db.execute(stmt_sprints)
+    sprints = res_sprints.scalars().all()
+    if not sprints:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Sprint plan and tasks must be generated before starting the build. Please generate the sprint plan first."
+        )
+
     # Trigger background build
     async def run_in_background():
         async with async_session() as background_db:
@@ -561,6 +572,49 @@ async def validate_project_prompts(
 
     from app.services.prompt_validator import PromptValidator
     return PromptValidator.validate_all_prompts(task_dicts)
+
+
+@router.delete("/projects/{id}")
+async def delete_project(
+    id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    stmt = select(Project).where(Project.id == id, Project.user_id == current_user.id)
+    res = await db.execute(stmt)
+    project = res.scalars().first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    # Cancel build if queued or running
+    try:
+        from app.services.build_queue import BuildQueue
+        from app.services.build_orchestrator import BuildOrchestrator
+        queue = BuildQueue.get_instance()
+        await queue.cancel_queued(id, current_user.id)
+        orch = BuildOrchestrator(db)
+        await orch.cancel_build(id, current_user.id)
+    except Exception as e:
+        logger.warning(f"Error canceling build for deleted project {id}: {e}")
+
+    # Remove project files on disk
+    try:
+        import shutil
+        import os
+        if project.project_dir and os.path.exists(project.project_dir):
+            shutil.rmtree(project.project_dir)
+    except Exception as e:
+        logger.warning(f"Error removing project files on disk for project {id}: {e}")
+
+    # Delete project from database (cascade deletes sprints, tasks, logs, etc.)
+    await db.delete(project)
+    await db.commit()
+
+    return {"message": "Project deleted successfully"}
+
 
 
 

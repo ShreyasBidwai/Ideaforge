@@ -287,6 +287,7 @@ class ClaudeService:
             prompt,
             "--allowedTools",
             "Read,Write,Edit,Bash",
+            "--dangerously-skip-permissions",
             "--output-format",
             "text"
         ]

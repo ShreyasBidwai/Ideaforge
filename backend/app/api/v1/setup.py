@@ -13,3 +13,15 @@ async def get_claude_status(current_user: User = Depends(get_current_user)):
 async def run_claude_test(prompt: str = "say hello", current_user: User = Depends(get_current_user)):
     result = ClaudeService.run_prompt(prompt, cwd="/tmp")
     return result
+
+
+@router.get("/ai-status")
+async def get_ai_status(current_user: User = Depends(get_current_user)):
+    from app.ai.provider import model_rotator
+    status = model_rotator.get_status()
+    available_count = len([v for v in status.values() if v == "available"])
+    return {
+        "models": status,
+        "remaining_capacity": available_count * 20
+    }
+

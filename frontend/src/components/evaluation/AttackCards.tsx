@@ -22,7 +22,10 @@ const AttackCards: React.FC<AttackCardsProps> = ({
     );
   }
 
-  const getSeverityBadgeClass = (severity: string) => {
+  const getSeverityBadgeClass = (severity?: string) => {
+    if (!severity) {
+      return "bg-emerald-500/10 text-emerald-400 border-emerald-500/20";
+    }
     switch (severity.toLowerCase()) {
       case "high":
         return "bg-red-500/10 text-red-400 border-red-500/20";
@@ -53,7 +56,7 @@ const AttackCards: React.FC<AttackCardsProps> = ({
                 <div className="flex items-start justify-between gap-3">
                   <h4 className="text-lg font-bold text-white">{att.solution_title}</h4>
                   <span className={`text-xs px-2.5 py-1 rounded-full border font-semibold capitalize ${getSeverityBadgeClass(att.severity)}`}>
-                    {att.severity} Severity
+                    {att.severity || "Low"} Severity
                   </span>
                 </div>
 

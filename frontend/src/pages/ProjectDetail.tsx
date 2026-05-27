@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { useParams, Link } from "react-router-dom";
+import { useParams, Link, useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import {
   ChevronLeft,
@@ -10,7 +10,9 @@ import {
   RotateCcw,
   CheckCircle,
   FileText,
-  Loader2
+  Loader2,
+  AlertTriangle,
+  Trash2
 } from "lucide-react";
 import apiClient from "../services/api";
 import { useBuildStore } from "../stores/buildStore";
@@ -29,6 +31,7 @@ type Tab = "overview" | "documents" | "build" | "setup" | "code";
 
 export default function ProjectDetail() {
   const { projectId } = useParams<{ projectId: string }>();
+  const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState<Tab>("overview");
   const [selectedDoc, setSelectedDoc] = useState<any | null>(null);
   const [setupSteps, setSetupSteps] = useState<any[]>([]);
@@ -120,6 +123,15 @@ export default function ProjectDetail() {
     }
   };
 
+  const handleRetryDocGeneration = async () => {
+    if (!projectId) return;
+    try {
+      await generateDocsStream(projectId);
+    } catch (e) {
+      console.error("Failed to retry doc generation:", e);
+    }
+  };
+
   const toggleDoc = (docId: string) => {
     setExpandedDocs((prev) => ({ ...prev, [docId]: !prev[docId] }));
   };
@@ -176,6 +188,24 @@ export default function ProjectDetail() {
     }
   };
 
+  const handleDeleteProject = async () => {
+    if (!projectId) return;
+    if (
+      !window.confirm(
+        "Are you sure you want to delete this project? This will permanently delete all sprints, tasks, files, and build logs."
+      )
+    ) {
+      return;
+    }
+    try {
+      await apiClient.delete(`/api/v1/projects/${projectId}`);
+      navigate("/approvals");
+    } catch (e) {
+      console.error(e);
+      alert("Error deleting project. Please try again.");
+    }
+  };
+
   const getStatusBadgeClass = (status: string) => {
     switch (status) {
       case "complete":
@@ -185,6 +215,8 @@ export default function ProjectDetail() {
         return "bg-blue-500/10 text-blue-400 border border-blue-500/20 animate-pulse";
       case "paused":
         return "bg-slate-800 text-slate-400 border border-slate-700/60";
+      case "doc_generation_failed":
+        return "bg-red-500/10 text-red-400 border border-red-500/20";
       default:
         return "bg-amber-500/10 text-amber-400 border border-amber-500/20";
     }
@@ -227,16 +259,29 @@ export default function ProjectDetail() {
           </div>
         </div>
 
-        {project.status !== "complete" && project.status !== "doc_review" && projectId && (
-          <button
-            onClick={() => startBuild(projectId)}
-            disabled={project.status === "building"}
-            className="flex items-center space-x-2 px-5 py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-sm font-semibold transition-all border border-blue-500/20 shadow disabled:opacity-50 disabled:cursor-not-allowed font-mono"
-          >
-            <Play className="w-4 h-4" />
-            <span>{project.status === "paused" ? "RESUME BUILD" : "START PIPELINE"}</span>
-          </button>
-        )}
+        <div className="flex items-center gap-3">
+          {projectId && (
+            <button
+              onClick={handleDeleteProject}
+              className="flex items-center space-x-2 px-5 py-2.5 bg-red-950/30 hover:bg-red-900/40 text-red-400 hover:text-red-300 rounded-lg text-sm font-semibold transition-all border border-red-500/20 shadow font-mono"
+            >
+              <Trash2 className="w-4 h-4" />
+              <span>DELETE PROJECT</span>
+            </button>
+          )}
+
+          {((project.status === "paused" || project.status === "building") || 
+            (project.status === "failed" && sprints && sprints.length > 0)) && projectId && (
+            <button
+              onClick={() => startBuild(projectId)}
+              disabled={project.status === "building"}
+              className="flex items-center space-x-2 px-5 py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-sm font-semibold transition-all border border-blue-500/20 shadow disabled:opacity-50 disabled:cursor-not-allowed font-mono"
+            >
+              <Play className="w-4 h-4" />
+              <span>{project.status === "paused" ? "RESUME BUILD" : "START PIPELINE"}</span>
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Tabs list */}
@@ -354,7 +399,23 @@ export default function ProjectDetail() {
 
         {activeTab === "documents" && (
           <div className="space-y-6">
-            {project.status === "doc_generation" || docGenerationProgress ? (
+            {project.status === "doc_generation_failed" ? (
+              <div className="bg-slate-900/60 border border-red-500/20 rounded-2xl p-8 flex flex-col items-center justify-center min-h-[300px] text-center space-y-4">
+                <div className="p-3.5 bg-red-500/10 text-red-400 rounded-full">
+                  <AlertTriangle className="w-8 h-8" />
+                </div>
+                <h3 className="text-lg font-bold text-white font-mono uppercase tracking-wider">Document Generation Failed</h3>
+                <p className="text-sm text-slate-400 max-w-md leading-relaxed">
+                  An error occurred while generating the project blueprints (AI provider rate limits or daily requests quota exceeded).
+                </p>
+                <button
+                  onClick={handleRetryDocGeneration}
+                  className="px-6 py-3 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-sm font-semibold transition-all border border-blue-500/20 shadow shadow-blue-550/20 font-mono"
+                >
+                  RETRY DOCUMENT GENERATION
+                </button>
+              </div>
+            ) : project.status === "doc_generation" || docGenerationProgress ? (
               <DocGenerationProgress
                 completedDocs={docGenerationProgress?.completedDocs || []}
                 currentDoc={docGenerationProgress?.currentDoc || null}
@@ -387,11 +448,33 @@ export default function ProjectDetail() {
                 {/* Sprints breakdown if all docs approved */}
                 {allDocsApproved && sprints && sprints.length > 0 && (
                   <div className="bg-slate-900/30 p-6 rounded-2xl border border-slate-800 space-y-4">
-                    <SprintReview
-                      sprints={sprints}
-                      onEditPrompt={handleEditTaskPrompt}
-                      onApproveAndBuild={handleApproveEverythingAndBuild}
-                    />
+                    {sprintGenerationProgress ? (
+                      <div className="flex flex-col items-center justify-center min-h-[200px] text-center space-y-3">
+                        <Loader2 className="w-8 h-8 text-blue-500 animate-spin mx-auto" />
+                        <h4 className="text-base font-bold text-white uppercase font-mono">
+                          {sprintGenerationProgress.status === "analyzing" ? "Analyzing Documentation" : "Regenerating Tasks"}
+                        </h4>
+                        <p className="text-sm text-slate-400">{sprintGenerationProgress.message}</p>
+                      </div>
+                    ) : (
+                      <>
+                        <div className="flex items-center justify-between border-b border-slate-800 pb-4">
+                          <h3 className="text-lg font-bold text-white font-mono">Sprint Review</h3>
+                          <button
+                            onClick={() => generateSprintsStream(projectId!)}
+                            className="flex items-center gap-2 px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-sm font-medium transition border border-slate-700 font-mono"
+                          >
+                            <RotateCcw className="w-3.5 h-3.5" />
+                            REGENERATE SPRINTS
+                          </button>
+                        </div>
+                        <SprintReview
+                          sprints={sprints}
+                          onEditPrompt={handleEditTaskPrompt}
+                          onApproveAndBuild={handleApproveEverythingAndBuild}
+                        />
+                      </>
+                    )}
                   </div>
                 )}
 

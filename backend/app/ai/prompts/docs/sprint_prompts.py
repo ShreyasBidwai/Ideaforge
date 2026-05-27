@@ -26,6 +26,8 @@ CRITICAL RULES:
 6. Each prompt should create a SMALL, testable unit of work — not an entire feature.
 7. Include the full tech stack and folder structure context in EVERY prompt that needs it.
 8. Test commands must be specific: "cd backend && python -m pytest tests/test_specific_file.py -v" not just "run tests".
+9. Keep prompts EXTREMELY CONCISE. The "prompt" field of each task MUST be less than 60 words. DO NOT generate code blocks, file templates, configs, or mock implementations. Simply describe the files to edit, the 1-2 sentence requirement, and the test command. This is critical to prevent the response from being truncated by token limits.
+10. NEVER use double quotes (") inside the text of the "prompt", "description", or "name" fields. In all code snippets, configurations, and scripts, use single quotes (') instead.
 
 JSON Schema:
 {
@@ -38,7 +40,7 @@ JSON Schema:
         {
           "task_number": 1,
           "name": "Short task name",
-          "prompt": "The FULL prompt text to send to claude -p. Must be self-contained. Include all file paths, schemas, patterns, and test cases.",
+          "prompt": "The FULL prompt text to send to claude -p. Must be self-contained. Include all file paths, schemas, patterns, and test cases. Under 60 words.",
           "test_command": "cd backend && python -m pytest tests/test_xxx.py -v",
           "expected_test_count": 8,
           "estimated_tokens": 5000
@@ -46,9 +48,9 @@ JSON Schema:
       ]
     }
   ],
-  "total_tasks": 45,
-  "total_sprints": 6,
-  "estimated_total_tests": 300
+  "total_tasks": 4,
+  "total_sprints": 2,
+  "estimated_total_tests": 10
 }"""
 
     user_prompt = f"""Based on the following project documentation, generate a complete sprint breakdown with self-contained task prompts.
@@ -60,14 +62,14 @@ PROJECT CONTEXT:
 - Maturity: {context['session']['maturity_level']}
 
 ARCHITECTURE DOCUMENT:
-{architecture_doc[:3000]}
+{architecture_doc[:2500]}
 
 PRD (KEY REQUIREMENTS):
-{prd_doc[:2000]}
+{prd_doc[:1500]}
 
 TRD (TECHNICAL DETAILS):
-{trd_doc[:2000]}
+{trd_doc[:1500]}
 
-Generate 4-8 sprints with 5-10 tasks each. Each task prompt must be self-contained and include test cases."""
+Generate exactly 2 sprints with exactly 2 tasks each (4 tasks total). Keep every single "prompt" field under 60 words. Use single quotes instead of double quotes for all string literals or code attributes within prompt texts."""
 
     return system_prompt, user_prompt

@@ -1,6 +1,9 @@
+import os
+# Force tests to use isolated test database instead of wiping development database
+os.environ["DATABASE_URL"] = "postgresql+asyncpg://tuition:tuition@localhost:5433/ideaforge_test"
+
 import asyncio
 import builtins
-import os
 import sys
 from importlib.abc import Loader, MetaPathFinder
 from importlib.machinery import ModuleSpec

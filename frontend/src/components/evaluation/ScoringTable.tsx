@@ -66,7 +66,7 @@ const ScoringTable: React.FC<ScoringTableProps> = ({
                 </td>
                 {scores.map((sol) => {
                   const scoreObj = sol.criterion_scores.find(
-                    (cs) => cs.criterion.toLowerCase() === crit.name.toLowerCase()
+                    (cs) => cs.criterion && cs.criterion.toLowerCase() === (crit.name || "").toLowerCase()
                   );
                   const score = scoreObj ? scoreObj.score : 0;
                   const justification = scoreObj ? scoreObj.justification : "";

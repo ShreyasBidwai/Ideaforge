@@ -119,7 +119,7 @@ class DocGenerationService:
                 doc = await self._generate_single_doc_internal(project, doc_type, context)
                 generated_docs.append(doc)
             except Exception as e:
-                project.status = "failed"
+                project.status = "doc_generation_failed"
                 await self.db.commit()
                 raise HTTPException(status_code=500, detail=f"Failed to generate {doc_type} document: {str(e)}")
 
@@ -163,7 +163,7 @@ class DocGenerationService:
             try:
                 await self._generate_single_doc_internal(project, doc_type, context)
             except Exception as e:
-                project.status = "failed"
+                project.status = "doc_generation_failed"
                 await self.db.commit()
                 raise e
             

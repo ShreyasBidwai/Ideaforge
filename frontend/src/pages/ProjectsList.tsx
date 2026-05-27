@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { FolderCode, PlusCircle, ArrowRight, Calendar } from 'lucide-react';
+import { FolderCode, PlusCircle, ArrowRight, Calendar, Trash2 } from 'lucide-react';
 import apiClient from '../services/api';
 
 interface Project {
@@ -22,13 +22,31 @@ export default function ProjectsList() {
     apiClient.get('/api/v1/projects')
       .then((res) => {
         setProjects(res.data || []);
-        setLoading(false);
+        setLoading(false)
       })
       .catch((e) => {
-        console.error(e);
-        setLoading(false);
-      });
+        console.error(e)
+        setLoading(false)
+      })
   }, []);
+
+  const handleDeleteProject = async (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (
+      !window.confirm(
+        "Are you sure you want to delete this project? This will permanently delete all sprints, tasks, files, and build logs."
+      )
+    ) {
+      return;
+    }
+    try {
+      await apiClient.delete(`/api/v1/projects/${id}`);
+      setProjects((prev) => prev.filter((p) => p.id !== id));
+    } catch (e) {
+      console.error("Failed to delete project:", e);
+      alert("Error deleting project. Please try again.");
+    }
+  };
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -126,9 +144,18 @@ export default function ProjectsList() {
               </div>
 
               <div className="flex items-center justify-between border-t border-slate-800/60 pt-4 mt-6">
-                <div className="flex items-center space-x-1.5 text-xs text-slate-500 font-mono">
-                  <Calendar className="w-3.5 h-3.5" />
-                  <span>{new Date(proj.created_at).toLocaleDateString()}</span>
+                <div className="flex items-center space-x-3">
+                  <div className="flex items-center space-x-1.5 text-xs text-slate-500 font-mono">
+                    <Calendar className="w-3.5 h-3.5" />
+                    <span>{new Date(proj.created_at).toLocaleDateString()}</span>
+                  </div>
+                  <button
+                    onClick={(e) => handleDeleteProject(proj.id, e)}
+                    className="p-1.5 text-slate-500 hover:text-red-400 hover:bg-red-500/10 rounded transition-colors"
+                    title="Delete Project"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
                 </div>
                 <div className="text-xs font-semibold text-blue-500 flex items-center space-x-1 group-hover:translate-x-1 transition-transform">
                   <span>Open Blueprint</span>

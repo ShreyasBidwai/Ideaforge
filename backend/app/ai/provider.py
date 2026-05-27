@@ -2,12 +2,54 @@ import abc
 import asyncio
 import logging
 from typing import Any, Dict, Optional
+from datetime import datetime
 import google.generativeai as genai
 from google.generativeai.types import GenerationConfig
 
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
+
+FREE_TIER_MODELS = [
+    "gemini-2.5-flash",
+    "gemini-2.0-flash",  
+    "gemini-2.0-flash-lite",
+    "gemini-flash-latest",
+    "gemini-flash-lite-latest",
+]
+
+class ModelRotator:
+    def __init__(self, models: list[str]):
+        self.models = models
+        self.current_index = 0
+        self.exhausted: dict[str, datetime] = {}  # model -> when it was exhausted
+    
+    def get_current_model(self) -> str:
+        """Get next available model, skipping exhausted ones"""
+        self._reset_expired()
+        for i in range(len(self.models)):
+            idx = (self.current_index + i) % len(self.models)
+            model = self.models[idx]
+            if model not in self.exhausted:
+                self.current_index = idx
+                return model
+        raise Exception("All free-tier Gemini models exhausted for today.")
+    
+    def mark_exhausted(self, model: str):
+        """Mark a model as quota-exhausted"""
+        self.exhausted[model] = datetime.utcnow()
+        self.current_index = (self.models.index(model) + 1) % len(self.models)
+    
+    def _reset_expired(self):
+        """Reset models exhausted more than 24 hours ago"""
+        now = datetime.utcnow()
+        self.exhausted = {m: t for m, t in self.exhausted.items() if (now - t).total_seconds() < 86400}
+    
+    def get_status(self) -> dict:
+        """Return status of all models"""
+        return {m: ("exhausted" if m in self.exhausted else "available") for m in self.models}
+
+model_rotator = ModelRotator(FREE_TIER_MODELS)
 
 
 class AIProvider(abc.ABC):
@@ -33,7 +75,6 @@ class GeminiProvider(AIProvider):
         # Configure the genai SDK with the provided API key
         genai.configure(api_key=self.api_key)
 
-
     async def generate(
         self,
         prompt: str,
@@ -53,16 +94,24 @@ class GeminiProvider(AIProvider):
 
         generation_config = GenerationConfig(**config_kwargs)
 
-        retries = 1
-        backoff_delay = 2.0
-        attempt = 0
-        last_exception = None
-
+        tried_models = set()
         while True:
+            try:
+                current_model = model_rotator.get_current_model()
+            except Exception as e:
+                logger.error(f"All free-tier Gemini models exhausted. Consider upgrading to paid API. Error: {e}")
+                raise RuntimeError("All free-tier Gemini models exhausted. Consider upgrading to paid API.") from e
+
+            if len(tried_models) >= len(model_rotator.models):
+                logger.error("All free-tier Gemini models exhausted. Consider upgrading to paid API.")
+                raise RuntimeError("All free-tier Gemini models exhausted. Consider upgrading to paid API.")
+
+            tried_models.add(current_model)
+
             try:
                 # Initialize model with system instruction
                 model = genai.GenerativeModel(
-                    model_name="gemini-2.5-flash",
+                    model_name=current_model,
                     system_instruction=system_prompt,
                 )
 
@@ -79,24 +128,18 @@ class GeminiProvider(AIProvider):
                 return response.text
 
             except Exception as e:
-                last_exception = e
-                if attempt >= retries:
-                    logger.error(
-                        f"GeminiProvider failed to generate response after {attempt} retries: {str(e)}"
-                    )
-                    break
+                err_msg = str(e).lower()
+                is_quota_error = "quota" in err_msg or "429" in err_msg or "resourceexhausted" in err_msg
 
-                attempt += 1
-                sleep_time = backoff_delay * (2 ** (attempt - 1))
-                logger.warning(
-                    f"Gemini generation call failed: {str(e)}. "
-                    f"Retrying in {sleep_time}s (attempt {attempt}/{retries})..."
-                )
-                await asyncio.sleep(sleep_time)
-
-        raise last_exception or RuntimeError(
-            "GeminiProvider failed to generate response."
-        )
+                if is_quota_error:
+                    logger.warning(f"Model {current_model} quota exceeded, rotating to next model")
+                    model_rotator.mark_exhausted(current_model)
+                    # Retry immediately with the next model
+                    continue
+                else:
+                    # Non-quota error, raise immediately
+                    logger.error(f"GeminiProvider failed with non-quota error using model {current_model}: {str(e)}")
+                    raise e
 
 
 def get_ai_provider() -> AIProvider:

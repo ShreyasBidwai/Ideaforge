@@ -1,5 +1,6 @@
 import json
 import logging
+import re
 from uuid import UUID
 from sqlalchemy.future import select
 from sqlalchemy.orm import selectinload
@@ -18,6 +19,132 @@ from app.ai.provider import AIProvider
 from app.ai.prompts.docs.sprint_prompts import build_sprint_prompts_prompt
 
 logger = logging.getLogger(__name__)
+
+
+def escape_inner_quotes(json_str: str) -> str:
+    keys_to_escape = {"name", "description", "prompt", "test_command"}
+    
+    result = []
+    i = 0
+    n = len(json_str)
+    
+    while i < n:
+        # Check if we are at a key start
+        match_key = None
+        for key in keys_to_escape:
+            key_pattern = rf'"{key}"\s*:\s*"'
+            m = re.match(key_pattern, json_str[i:])
+            if m:
+                match_key = key
+                match_len = m.end()
+                break
+        
+        if match_key:
+            # We found the start of a string value, e.g. "prompt": "
+            result.append(json_str[i:i+match_len])
+            i += match_len
+            
+            # Now we find the end of the string value.
+            val_start = i
+            val_end = -1
+            j = i
+            while j < n:
+                if json_str[j] == '"':
+                    # Is this quote followed by a comma or closing brace or bracket (with optional whitespace)?
+                    suffix = json_str[j+1:]
+                    if re.match(r'^\s*(?:,|}|\])', suffix):
+                        # Verify it's not escaped
+                        escaped = False
+                        k = j - 1
+                        while k >= val_start and json_str[k] == '\\':
+                            escaped = not escaped
+                            k -= 1
+                        if not escaped:
+                            val_end = j
+                            break
+                j += 1
+            
+            if val_end != -1:
+                val_content = json_str[val_start:val_end]
+                # Escape any double quotes in val_content that are not already escaped.
+                escaped_val = []
+                escaped = False
+                for char in val_content:
+                    if char == '\\':
+                        escaped = not escaped
+                        escaped_val.append(char)
+                    elif char == '"':
+                        if not escaped:
+                            escaped_val.append('\\"')
+                        else:
+                            escaped_val.append(char)
+                        escaped = False
+                    else:
+                        escaped_val.append(char)
+                        escaped = False
+                
+                result.append("".join(escaped_val))
+                result.append('"')
+                i = val_end + 1
+            else:
+                result.append(json_str[i])
+                i += 1
+        else:
+            result.append(json_str[i])
+            i += 1
+            
+    return "".join(result)
+
+
+def clean_json_response(text: str) -> str:
+    if not text:
+        return ""
+    text = text.strip()
+    
+    # Remove markdown code blocks if present
+    if text.startswith("```"):
+        match = re.match(r"^```(?:json)?\s*(.*?)\s*```$", text, re.DOTALL | re.IGNORECASE)
+        if match:
+            text = match.group(1).strip()
+            
+    # If there is still leading/trailing text, find first { and last }
+    first_brace = text.find("{")
+    last_brace = text.rfind("}")
+    if first_brace != -1 and last_brace != -1 and last_brace > first_brace:
+        text = text[first_brace:last_brace + 1]
+
+    # Escape unescaped double quotes inside key string values
+    text = escape_inner_quotes(text)
+
+    # Escape unescaped newlines, carriage returns, and tabs that are inside double-quoted string values.
+    # LLMs frequently output raw newlines inside JSON string attributes, which is invalid JSON.
+    escaped_chars = []
+    in_string = False
+    escaped = False
+    for char in text:
+        if char == '"' and not escaped:
+            in_string = not in_string
+            escaped_chars.append(char)
+        elif char == '\\' and in_string:
+            escaped = not escaped
+            escaped_chars.append(char)
+        else:
+            if in_string and char == '\n':
+                escaped_chars.append('\\n')
+            elif in_string and char == '\r':
+                escaped_chars.append('\\r')
+            elif in_string and char == '\t':
+                escaped_chars.append('\\t')
+            else:
+                escaped_chars.append(char)
+            escaped = False
+    text = "".join(escaped_chars)
+
+    # Replace absurdly large numbers (11+ digits) with 0 — Gemini sometimes
+    # hallucinates astronomically large integers in metadata fields like total_tasks
+    text = re.sub(r'\b\d{11,}\b', '0', text)
+        
+    return text
 
 class SprintGenerationService:
     def __init__(self, ai_provider: AIProvider, db: AsyncSession):
@@ -145,9 +272,10 @@ class SprintGenerationService:
         )
 
         try:
-            data = json.loads(response_text)
+            cleaned_text = clean_json_response(response_text)
+            data = json.loads(cleaned_text)
         except Exception as e:
-            logger.error(f"Failed to parse JSON response from Gemini: {response_text}")
+            logger.error(f"Failed to parse JSON response from Gemini: {response_text}, error: {e}")
             raise HTTPException(status_code=500, detail="Failed to parse sprint breakdown JSON response from Gemini.")
 
         # Clear existing sprints and tasks to allow regeneration
@@ -319,9 +447,10 @@ class SprintGenerationService:
         )
 
         try:
-            data = json.loads(response_text)
+            cleaned_text = clean_json_response(response_text)
+            data = json.loads(cleaned_text)
         except Exception as e:
-            logger.error(f"Failed to parse JSON response from Gemini: {response_text}")
+            logger.error(f"Failed to parse JSON response from Gemini: {response_text}, error: {e}")
             raise HTTPException(status_code=500, detail="Failed to parse sprint breakdown JSON response from Gemini.")
 
         # Clear existing sprints and tasks to allow regeneration
