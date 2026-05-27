@@ -201,3 +201,67 @@ export interface ComparisonResult {
   disagreements: string[];
 }
 
+// ─── Project & Build ───
+export interface Project {
+  id: string;
+  user_id: string;
+  solution_id: string;
+  name: string;
+  description: string | null;
+  industry: string;
+  location: string;
+  maturity_level: string;
+  tech_stack: string[] | Record<string, any> | null;
+  status: string;
+  project_dir: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface Document {
+  id: string;
+  project_id: string;
+  doc_type: string;
+  title: string;
+  content: string;
+  version: number;
+  status: string;
+  created_at: string;
+}
+
+export interface Sprint {
+  id: string;
+  project_id: string;
+  sprint_number: number;
+  name: string;
+  description: string | null;
+  status: string;
+  created_at: string;
+  tasks: SprintTask[];
+}
+
+export interface SprintTask {
+  id: string;
+  sprint_id: string;
+  task_number: number;
+  name: string;
+  prompt: string;
+  status: string;
+  test_command: string | null;
+  test_count: number;
+  tests_passed: number;
+  tests_failed: number;
+  retry_count: number;
+  created_at: string;
+}
+
+export interface BuildLogEntry {
+  id: string;
+  project_id: string;
+  timestamp: string;
+  level: string;
+  source: string;
+  message: string;
+}
+
+

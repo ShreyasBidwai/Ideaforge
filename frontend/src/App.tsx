@@ -14,6 +14,7 @@ const ProblemLibrary = lazy(() => import("./pages/ProblemLibrary"));
 const SolutionWorkspace = lazy(() => import("./pages/SolutionWorkspace"));
 const Evaluation = lazy(() => import("./pages/Evaluation"));
 const Approvals = lazy(() => import("./pages/Approvals"));
+const BuildDashboard = lazy(() => import("./pages/BuildDashboard"));
 const Login = lazy(() => import("./pages/Login"));
 const Register = lazy(() => import("./pages/Register"));
 
@@ -45,6 +46,7 @@ const App: React.FC = () => {
               <Route path="/workspace/:problemId" element={<SolutionWorkspace />} />
               <Route path="/evaluation/:problemId" element={<Evaluation />} />
               <Route path="/approvals" element={<Approvals />} />
+              <Route path="/projects/:projectId/build" element={<BuildDashboard />} />
             </Route>
           </Route>
 
