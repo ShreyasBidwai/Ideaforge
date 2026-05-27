@@ -12,6 +12,7 @@ from app.api.v1.evaluations import router as evaluations_router
 from app.api.v1.dashboard import router as dashboard_router
 from app.api.v1.approvals import router as approvals_router
 from app.api.v1.projects import router as projects_router
+from app.api.v1.builds import router as builds_router
 
 router = APIRouter()
 
@@ -27,6 +28,7 @@ router.include_router(evaluations_router, tags=["evaluations"])
 router.include_router(dashboard_router, tags=["dashboard"])
 router.include_router(approvals_router, tags=["approvals"])
 router.include_router(projects_router, tags=["projects"])
+router.include_router(builds_router, tags=["builds"])
 
 
 
