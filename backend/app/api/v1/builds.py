@@ -140,7 +140,8 @@ async def get_build_status(
                 "id": str(t.id),
                 "name": t.name,
                 "status": t.status,
-                "task_number": t.task_number
+                "task_number": t.task_number,
+                "rate_limit_reset_at": t.rate_limit_reset_at.isoformat() if t.rate_limit_reset_at else None
             }
             break
 
@@ -290,5 +291,6 @@ async def get_build_failure_details(
         "name": task.name,
         "status": task.status,
         "error_output": task.error_output,
-        "claude_output": task.claude_output
+        "claude_output": task.claude_output,
+        "prompt": task.prompt
     }

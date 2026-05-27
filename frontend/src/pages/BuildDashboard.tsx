@@ -9,6 +9,12 @@ import SprintAccordion from "../components/build/SprintAccordion";
 import BuildLog from "../components/build/BuildLog";
 import BuildActions from "../components/build/BuildActions";
 
+import FailurePanel from "../components/build/FailurePanel";
+import QueuePosition from "../components/build/QueuePosition";
+import RateLimitCountdown from "../components/build/RateLimitCountdown";
+import FileBrowser from "../components/project/FileBrowser";
+import apiClient from "../services/api";
+
 export default function BuildDashboard() {
   const { projectId } = useParams<{ projectId: string }>();
   const {
@@ -19,15 +25,22 @@ export default function BuildDashboard() {
     stats,
     rateLimitInfo,
     isConnected,
+    currentTask,
+    queuePosition,
+    failureDetails,
     fetchBuildStatus,
     startBuild,
     pauseBuild,
     cancelBuild,
     connectLogStream,
-    disconnectLogStream
+    disconnectLogStream,
+    retryFailed
   } = useBuildStore();
 
   const [isFullLogOpen, setIsFullLogOpen] = useState(false);
+  const [isFileBrowserOpen, setIsFileBrowserOpen] = useState(false);
+  const [isPromptEditorOpen, setIsPromptEditorOpen] = useState(false);
+  const [editedPrompt, setEditedPrompt] = useState("");
 
   useEffect(() => {
     if (!projectId) return;
@@ -54,6 +67,34 @@ export default function BuildDashboard() {
   }
 
   const overallProgress = stats.totalTasks > 0 ? (stats.completedTasks / stats.totalTasks) * 100 : 0;
+
+  const handleDownloadProject = () => {
+    if (!projectId) return;
+    apiClient.get(`/api/v1/projects/${projectId}/download`, { responseType: 'blob' })
+      .then((response) => {
+        const url = window.URL.createObjectURL(new Blob([response.data]));
+        const link = document.createElement('a');
+        link.href = url;
+        link.setAttribute('download', `${project.name || 'project'}.zip`);
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+      })
+      .catch((error) => {
+        console.error("Failed to download project zip:", error);
+      });
+  };
+
+  const handleEditPromptSubmit = async () => {
+    if (!projectId || !failureDetails?.task_id) return;
+    try {
+      await apiClient.patch(`/api/v1/tasks/${failureDetails.task_id}/prompt`, { prompt: editedPrompt });
+      setIsPromptEditorOpen(false);
+      await retryFailed(projectId);
+    } catch (err) {
+      console.error("Failed to update task prompt and retry:", err);
+    }
+  };
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 p-4 md:p-6 lg:p-8 space-y-6">
@@ -112,6 +153,56 @@ export default function BuildDashboard() {
           />
         )}
       </div>
+
+      {/* Dynamic Recovery Panels */}
+      {status === "failed" && (
+        <FailurePanel
+          taskName={failureDetails?.name || currentTask?.name || "Task"}
+          errorOutput={failureDetails?.error_output || currentTask?.error_output || "No error output details available."}
+          onRetry={() => retryFailed(projectId!)}
+          onEditPrompt={() => {
+            setEditedPrompt(failureDetails?.prompt || currentTask?.prompt || "");
+            setIsPromptEditorOpen(true);
+          }}
+          onCancel={() => cancelBuild(projectId!)}
+        />
+      )}
+
+      {status === "queued" && (
+        <QueuePosition
+          position={queuePosition || 1}
+          estimatedWait={queuePosition ? `~${queuePosition * 2} hours` : "~2 hours"}
+          onCancel={() => cancelBuild(projectId!)}
+        />
+      )}
+
+      {status === "rate_limited" && rateLimitInfo?.resumeAt && (
+        <RateLimitCountdown resumeAt={currentTask?.rate_limit_reset_at || rateLimitInfo.resumeAt} />
+      )}
+
+      {/* Code Access Panel */}
+      {(status === "complete" || status === "building" || status === "failed") && (
+        <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 flex flex-col md:flex-row items-center justify-between gap-4">
+          <div className="space-y-1">
+            <h3 className="text-sm font-bold text-slate-200 font-mono">Workspace Code Access</h3>
+            <p className="text-xs text-slate-400">Examine built files directly or download the full workspace bundle.</p>
+          </div>
+          <div className="flex items-center space-x-3 w-full md:w-auto">
+            <button
+              onClick={() => setIsFileBrowserOpen(true)}
+              className="flex-1 md:flex-none flex items-center justify-center space-x-2 py-2 px-4 bg-zinc-800 hover:bg-zinc-750 text-zinc-100 hover:text-white font-semibold text-xs rounded-lg border border-zinc-700 transition-all font-mono"
+            >
+              <span>BROWSE CODE</span>
+            </button>
+            <button
+              onClick={handleDownloadProject}
+              className="flex-1 md:flex-none flex items-center justify-center space-x-2 py-2 px-4 bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-xs rounded-lg transition-all font-mono"
+            >
+              <span>DOWNLOAD PROJECT</span>
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Stats Cards */}
       <BuildStats stats={stats} />
@@ -178,6 +269,68 @@ export default function BuildDashboard() {
                   </div>
                 );
               })}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* File Browser Overlay */}
+      {isFileBrowserOpen && (
+        <div className="fixed inset-0 z-50 flex justify-end bg-slate-950/85 backdrop-blur-xs">
+          <div className="bg-slate-900 border-l border-slate-800 w-full max-w-5xl h-screen flex flex-col shadow-2xl">
+            <div className="bg-slate-950 px-6 py-4 flex items-center justify-between border-b border-slate-850">
+              <div className="space-y-0.5">
+                <span className="text-sm font-bold text-white font-mono uppercase tracking-wider">Workspace Code Explorer</span>
+                <p className="text-[10px] text-slate-500 font-mono">Exploring source files inside project directory</p>
+              </div>
+              <button
+                onClick={() => setIsFileBrowserOpen(false)}
+                className="text-xs text-slate-400 hover:text-white font-bold font-mono px-3 py-1.5 rounded-lg border border-slate-850 hover:bg-slate-900 transition-all"
+              >
+                CLOSE EXPLORER
+              </button>
+            </div>
+            <div className="flex-1 overflow-hidden p-6 bg-slate-900/40">
+              <FileBrowser projectId={projectId!} />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Prompt Editor Modal */}
+      {isPromptEditorOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-xs">
+          <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden shadow-2xl flex flex-col w-full max-w-2xl">
+            <div className="bg-slate-950/80 px-6 py-4 flex items-center justify-between border-b border-slate-800">
+              <span className="text-sm font-bold text-zinc-200 font-mono">Edit Prompt & Retry</span>
+              <button
+                onClick={() => setIsPromptEditorOpen(false)}
+                className="text-xs text-zinc-400 hover:text-zinc-200 font-bold font-mono"
+              >
+                CLOSE
+              </button>
+            </div>
+            <div className="p-6 space-y-4">
+              <label className="block text-xs font-mono text-zinc-400 uppercase tracking-wider">Task Prompt</label>
+              <textarea
+                value={editedPrompt}
+                onChange={(e) => setEditedPrompt(e.target.value)}
+                className="w-full h-80 bg-zinc-950 border border-zinc-800 rounded-lg p-3 text-xs font-mono text-zinc-300 focus:outline-none focus:border-indigo-500"
+              />
+              <div className="flex justify-end space-x-3">
+                <button
+                  onClick={() => setIsPromptEditorOpen(false)}
+                  className="px-4 py-2 bg-transparent hover:bg-zinc-800 text-zinc-300 text-xs font-bold font-mono rounded-lg transition-colors border border-zinc-800"
+                >
+                  CANCEL
+                </button>
+                <button
+                  onClick={handleEditPromptSubmit}
+                  className="px-4 py-2 bg-indigo-650 hover:bg-indigo-600 text-white text-xs font-bold font-mono rounded-lg transition-colors shadow-lg shadow-indigo-950/40"
+                >
+                  SAVE & RETRY
+                </button>
+              </div>
             </div>
           </div>
         </div>

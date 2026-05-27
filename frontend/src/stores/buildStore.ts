@@ -14,6 +14,8 @@ interface BuildState {
   isConnected: boolean;
   docGenerationProgress: { completedDocs: string[]; currentDoc: string | null; status: string; message: string; } | null;
   sprintGenerationProgress: { status: string; message: string; } | null;
+  queuePosition: number | null;
+  failureDetails: any | null;
   
   fetchBuildStatus: (projectId: string) => Promise<void>;
   startBuild: (projectId: string) => Promise<void>;
@@ -23,6 +25,9 @@ interface BuildState {
   disconnectLogStream: () => void;
   generateDocsStream: (projectId: string) => Promise<void>;
   generateSprintsStream: (projectId: string) => Promise<void>;
+  retryFailed: (projectId: string) => Promise<void>;
+  fetchFailureDetails: (projectId: string) => Promise<void>;
+  fetchQueuePosition: (projectId: string) => Promise<void>;
 }
 
 export const useBuildStore = create<BuildState>((set, get) => ({
@@ -35,7 +40,8 @@ export const useBuildStore = create<BuildState>((set, get) => ({
   rateLimitInfo: null,
   isConnected: false,
   docGenerationProgress: null,
-  sprintGenerationProgress: null,
+  queuePosition: null,
+  failureDetails: null,
 
   fetchBuildStatus: async (projectId) => {
     try {
@@ -71,6 +77,22 @@ export const useBuildStore = create<BuildState>((set, get) => ({
 
       const usage = isLimited ? 30 : Math.min(23, completedTasks + 5);
 
+      let queuePosition: number | null = null;
+      if (statusData.status === "queued") {
+        try {
+          const queueRes = await apiClient.get(`/api/v1/projects/${projectId}/build/queue-position`);
+          queuePosition = queueRes.data.position;
+        } catch (_) {}
+      }
+
+      let failureDetails: any | null = null;
+      if (statusData.status === "failed") {
+        try {
+          const failRes = await apiClient.get(`/api/v1/projects/${projectId}/build/failure-details`);
+          failureDetails = failRes.data;
+        } catch (_) {}
+      }
+
       set({
         project,
         sprints,
@@ -83,7 +105,9 @@ export const useBuildStore = create<BuildState>((set, get) => ({
           resumeAt,
           usage,
           capacity: 30
-        }
+        },
+        queuePosition,
+        failureDetails
       });
     } catch (error) {
       console.error("Error fetching build status:", error);
@@ -317,6 +341,36 @@ export const useBuildStore = create<BuildState>((set, get) => ({
     } catch (error) {
       console.error("Error streaming sprints:", error);
       set({ sprintGenerationProgress: null });
+    }
+  },
+
+  retryFailed: async (projectId) => {
+    try {
+      const res = await apiClient.post(`/api/v1/projects/${projectId}/build/retry-failed`);
+      set({ status: res.data.status, failureDetails: null });
+      await get().fetchBuildStatus(projectId);
+    } catch (error) {
+      console.error("Error retrying failed build task:", error);
+    }
+  },
+
+  fetchFailureDetails: async (projectId) => {
+    try {
+      const res = await apiClient.get(`/api/v1/projects/${projectId}/build/failure-details`);
+      set({ failureDetails: res.data });
+    } catch (error) {
+      console.error("Error fetching failure details:", error);
+      set({ failureDetails: null });
+    }
+  },
+
+  fetchQueuePosition: async (projectId) => {
+    try {
+      const res = await apiClient.get(`/api/v1/projects/${projectId}/build/queue-position`);
+      set({ queuePosition: res.data.position });
+    } catch (error) {
+      console.error("Error fetching queue position:", error);
+      set({ queuePosition: null });
     }
   }
 }));
