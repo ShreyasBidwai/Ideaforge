@@ -184,3 +184,73 @@ async def get_task(
 ):
     service = SprintGenerationService(None, db)
     return await service.get_task(task_id, current_user.id)
+
+@router.get("/projects/{id}/setup-guide")
+async def get_setup_guide(
+    id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    stmt = select(Project).where(Project.id == id, Project.user_id == current_user.id)
+    res = await db.execute(stmt)
+    project = res.scalars().first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    steps = [
+        {"label": "Create PostgreSQL database", "command": "createdb ideaforge"},
+        {"label": "Clone/Access the generated repository", "command": f"cd {project.project_dir or '/tmp'}"},
+    ]
+
+    has_python = False
+    has_node = False
+    
+    tech_stack = project.tech_stack or []
+    if isinstance(tech_stack, dict):
+        tech_stack_list = list(tech_stack.keys()) + list(tech_stack.values())
+    else:
+        tech_stack_list = list(tech_stack)
+
+    tech_stack_str = " ".join([str(t).lower() for t in tech_stack_list])
+    
+    if "python" in tech_stack_str or "fastapi" in tech_stack_str or "django" in tech_stack_str or "flask" in tech_stack_str:
+        has_python = True
+    if "react" in tech_stack_str or "node" in tech_stack_str or "typescript" in tech_stack_str or "vue" in tech_stack_str:
+        has_node = True
+
+    if has_python:
+        steps.append({"label": "Install Python dependencies", "command": "pip install -r requirements.txt"})
+        steps.append({"label": "Run migrations", "command": "alembic upgrade head"})
+        steps.append({"label": "Start backend server", "command": "uvicorn app.main:app --reload"})
+    
+    if has_node:
+        steps.append({"label": "Install Node dependencies", "command": "npm install"})
+        steps.append({"label": "Start frontend dev server", "command": "npm run dev"})
+        
+    return {"steps": steps}
+
+@router.get("/projects/{id}/env-template")
+async def get_env_template(
+    id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    stmt = select(Project).where(Project.id == id, Project.user_id == current_user.id)
+    res = await db.execute(stmt)
+    project = res.scalars().first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    env_content = """# App Configuration
+APP_NAME=IdeaForge App
+APP_ENV=development
+PORT=8000
+
+# Database Settings
+DATABASE_URL=postgresql://postgres:postgres@localhost:5432/ideaforge
+
+# Security
+JWT_SECRET=supersecretjwtkeyplaceholder
+"""
+    return {"env_template": env_content}
+
