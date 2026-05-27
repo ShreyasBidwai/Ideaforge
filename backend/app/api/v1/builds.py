@@ -13,6 +13,7 @@ from app.models import User, Project, Sprint, SprintTask, BuildLog
 from app.services.build_orchestrator import BuildOrchestrator
 from app.services.cron_service import CronService
 from app.core.streaming import format_sse_event
+from app.services.build_queue import BuildQueue
 
 router = APIRouter(dependencies=[Depends(get_current_user)])
 
@@ -28,13 +29,51 @@ async def start_project_build(
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
 
-    async def run_in_background():
-        async with async_session() as background_db:
-            orch = BuildOrchestrator(background_db)
-            await orch.start_build(id, current_user.id)
+    queue = BuildQueue.get_instance()
+    result = await queue.enqueue_build(id, current_user.id)
+    return result
 
-    asyncio.create_task(run_in_background())
-    return {"message": "Build started successfully", "status": "building"}
+@router.get("/build-queue")
+async def get_build_queue():
+    queue = BuildQueue.get_instance()
+    return await queue.get_queue_status()
+
+@router.get("/projects/{id}/build/queue-position")
+async def get_project_queue_position(
+    id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    stmt = select(Project).where(Project.id == id, Project.user_id == current_user.id)
+    res = await db.execute(stmt)
+    project = res.scalars().first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    queue = BuildQueue.get_instance()
+    position = await queue.get_position(id)
+    return {"position": position}
+
+@router.delete("/projects/{id}/build/queue")
+async def remove_from_build_queue(
+    id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    stmt = select(Project).where(Project.id == id, Project.user_id == current_user.id)
+    res = await db.execute(stmt)
+    project = res.scalars().first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    queue = BuildQueue.get_instance()
+    cancelled = await queue.cancel_queued(id, current_user.id)
+    if not cancelled:
+        raise HTTPException(
+            status_code=400,
+            detail="Project is not in the build queue or is already building."
+        )
+    return {"message": "Project removed from build queue", "status": "doc_review"}
 
 @router.post("/projects/{id}/build/pause")
 async def pause_project_build(

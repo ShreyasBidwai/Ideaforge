@@ -22,9 +22,16 @@ async def lifespan(app: FastAPI):
     cache_service = CacheService(settings.REDIS_URL)
     await cache_service.connect()
     app.state.cache = cache_service
+
+    # Start build queue processing loop
+    import asyncio
+    from app.services.build_queue import BuildQueue
+    queue_task = asyncio.create_task(BuildQueue.get_instance().start_processing())
+
     yield
     # Run shutdown events
     logger.info("Shutting down IdeaForge Backend...")
+    queue_task.cancel()
     await cache_service.close()
 
 
