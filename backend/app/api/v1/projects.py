@@ -48,7 +48,10 @@ async def create_project(
     res_existing = await db.execute(stmt_existing)
     existing_project = res_existing.scalars().first()
     if existing_project:
-        return existing_project
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="A project already exists for this solution"
+        )
 
     problem = solution.problem_statement
     session = problem.session

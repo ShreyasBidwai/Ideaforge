@@ -23,8 +23,9 @@ import DocumentViewer from "../components/project/DocumentViewer";
 import DocumentEditor from "../components/project/DocumentEditor";
 import SprintReview from "../components/project/SprintReview";
 import DocGenerationProgress from "../components/project/DocGenerationProgress";
+import FileBrowser from "../components/project/FileBrowser";
 
-type Tab = "overview" | "documents" | "build" | "setup";
+type Tab = "overview" | "documents" | "build" | "setup" | "code";
 
 export default function ProjectDetail() {
   const { projectId } = useParams<{ projectId: string }>();
@@ -269,6 +270,16 @@ export default function ProjectDetail() {
           }`}
         >
           Build Progress
+        </button>
+        <button
+          onClick={() => setActiveTab("code")}
+          className={`px-4 py-2 text-sm font-semibold font-mono border-b-2 transition-all ${
+            activeTab === "code"
+              ? "border-blue-500 text-blue-400"
+              : "border-transparent text-slate-400 hover:text-slate-200"
+          }`}
+        >
+          Code
         </button>
         {project.status === "complete" && (
           <button
@@ -571,6 +582,12 @@ export default function ProjectDetail() {
                 <BuildLog logs={logs} isConnected={true} />
               </div>
             </div>
+          </div>
+        )}
+
+        {activeTab === "code" && (
+          <div className="space-y-6">
+            <FileBrowser projectId={projectId!} />
           </div>
         )}
 
