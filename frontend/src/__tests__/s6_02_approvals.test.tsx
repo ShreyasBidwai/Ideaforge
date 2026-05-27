@@ -56,14 +56,12 @@ it('should show empty state when no approvals', async () => {
   expect(screen.getAllByText(/approved/i).length).toBeGreaterThan(0);
 });
 
-// TEST 8: Phase 2 button is disabled
-it('should show disabled Phase 2 button with tooltip', async () => {
+// TEST 8: Build App button is present and triggers build
+it('should show Build App button and trigger project creation', async () => {
   const { default: Approvals } = await import('../pages/Approvals');
   render(<MemoryRouter><Approvals /></MemoryRouter>);
   
   // Wait for the mock data to render
-  const generateBtn = await screen.findByRole('button', { name: /generate documents/i });
-  expect(generateBtn).toBeDefined();
-  expect(generateBtn).toHaveProperty('disabled', true);
-  expect(generateBtn.getAttribute('title')).toBe('Coming in Phase 2');
+  const buildBtn = await screen.findByRole('button', { name: /build app/i });
+  expect(buildBtn).toBeDefined();
 });

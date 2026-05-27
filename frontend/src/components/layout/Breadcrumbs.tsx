@@ -11,9 +11,21 @@ export const Breadcrumbs: React.FC = () => {
     if (segment === "library") return "Problem Library";
     if (segment === "workspace") return "Solution Workspace";
     if (segment === "approvals") return "Approvals";
+    if (segment === "projects") return "Projects";
+    if (segment === "build") return "Build";
+    if (segment === "documents") return "Documents";
+    if (segment === "edit") return "Edit Document";
     // Check if previous segment is workspace, then this segment is the problem ID
     if (index > 0 && pathnames[index - 1] === "workspace") {
-      return `Problem #${segment}`;
+      return `Problem #${segment.slice(0, 8)}`;
+    }
+    // Check if previous segment is projects, then this segment is the project ID / name
+    if (index > 0 && pathnames[index - 1] === "projects") {
+      return `Project #${segment.slice(0, 8)}`;
+    }
+    // Check if previous segment is documents, then this segment is the doc ID
+    if (index > 0 && pathnames[index - 1] === "documents") {
+      return `Document #${segment.slice(0, 8)}`;
     }
     return segment.charAt(0).toUpperCase() + segment.slice(1);
   };

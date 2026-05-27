@@ -43,10 +43,81 @@ const Dashboard: React.FC = () => {
   const [location, setLocation] = useState("");
   const [maturity, setMaturity] = useState("mvp");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [activeProjects, setActiveProjects] = useState<any[]>([]);
 
   useEffect(() => {
     fetchDashboardData();
   }, [fetchDashboardData]);
+
+  useEffect(() => {
+    apiClient.get("/api/v1/projects")
+      .then(async (res) => {
+        if (Array.isArray(res.data)) {
+          const active = res.data.filter((p: any) => p.status === "building" || p.status === "rate_limited");
+          
+          // For each active project, fetch its sprints/stats to compute progress and active task
+          const detailedActive = await Promise.all(
+            active.map(async (p: any) => {
+              try {
+                const [sprintsRes, statsRes] = await Promise.all([
+                  apiClient.get(`/api/v1/projects/${p.id}/sprints`),
+                  apiClient.get(`/api/v1/projects/${p.id}/stats`)
+                ]);
+                const sprints = sprintsRes.data || [];
+                const stats = statsRes.data || { completedTasks: 0, totalTasks: 0, etaSeconds: 0 };
+                
+                // Find current sprint and task
+                let currentSprintName = "N/A";
+                let currentTaskName = "N/A";
+                
+                for (const s of sprints) {
+                  if (s.status === "active") {
+                    currentSprintName = s.name;
+                    const activeTask = s.tasks?.find((t: any) => t.status === "running" || t.status === "failed");
+                    if (activeTask) {
+                      currentTaskName = activeTask.name;
+                    } else {
+                      const pendingTask = s.tasks?.find((t: any) => t.status === "pending");
+                      if (pendingTask) currentTaskName = pendingTask.name;
+                    }
+                    break;
+                  }
+                }
+                
+                const progress = stats.totalTasks > 0 ? (stats.completedTasks / stats.totalTasks) * 100 : 0;
+                
+                // Calculate ETA string
+                let etaStr = "Calculating...";
+                if (stats.etaSeconds > 0) {
+                  const minutes = Math.ceil(stats.etaSeconds / 60);
+                  etaStr = `${minutes} min remaining`;
+                } else if (stats.etaSeconds === 0 && progress === 100) {
+                  etaStr = "Complete";
+                }
+                
+                return {
+                  ...p,
+                  progress,
+                  currentSprintTask: `${currentSprintName} - ${currentTaskName}`,
+                  eta: etaStr
+                };
+              } catch (e) {
+                console.error(e);
+                return {
+                  ...p,
+                  progress: 0,
+                  currentSprintTask: "Loading...",
+                  eta: "N/A"
+                };
+              }
+            })
+          );
+          
+          setActiveProjects(detailedActive);
+        }
+      })
+      .catch(console.error);
+  }, []);
 
   // Nice date string
   const formattedDate = new Date().toLocaleDateString("en-US", {
@@ -249,6 +320,73 @@ const Dashboard: React.FC = () => {
             })}
           </div>
         </div>
+
+        {/* Active Builds Section */}
+        {activeProjects.length > 0 && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.4, delay: 0.1 }}
+            className="space-y-4 mb-8"
+          >
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-bold text-white font-mono uppercase flex items-center gap-2">
+                <span className="w-2 h-2 bg-blue-500 rounded-full animate-pulse" />
+                Active Builds
+              </h2>
+              <Link to="/projects" className="text-xs font-semibold text-blue-450 hover:text-blue-350 font-mono">
+                VIEW ALL PROJECTS
+              </Link>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {activeProjects.map((p) => (
+                <div
+                  key={p.id}
+                  onClick={() => navigate(`/projects/${p.id}/build`)}
+                  className="bg-slate-900/60 backdrop-blur-xl border border-white/5 hover:border-blue-500/30 rounded-2xl p-5 cursor-pointer transition-all duration-200 shadow-xl flex flex-col justify-between"
+                >
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <h3 className="text-sm font-bold text-white font-mono">{p.name}</h3>
+                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border uppercase tracking-wider font-mono ${
+                        p.status === "rate_limited" 
+                          ? "bg-orange-500/10 text-orange-400 border-orange-500/20" 
+                          : "bg-blue-500/10 text-blue-400 border-blue-500/20 animate-pulse"
+                      }`}>
+                        {p.status}
+                      </span>
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <div className="flex items-center justify-between text-xs text-slate-400">
+                        <span>Progress</span>
+                        <span className="font-mono font-bold text-white">{Math.round(p.progress)}%</span>
+                      </div>
+                      <div className="w-full h-1.5 bg-slate-950 rounded-full overflow-hidden">
+                        <div
+                          className="h-full bg-blue-500 rounded-full transition-all duration-500"
+                          style={{ width: `${p.progress}%` }}
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4 border-t border-white/5 pt-3 mt-4 text-xs font-mono">
+                    <div>
+                      <span className="text-[10px] text-slate-500 uppercase">Active Task</span>
+                      <p className="text-slate-300 font-semibold truncate mt-0.5">{p.currentSprintTask}</p>
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-slate-500 uppercase">ETA</span>
+                      <p className="text-slate-300 font-semibold mt-0.5">{p.eta}</p>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </motion.div>
+        )}
 
         {/* Middle Section — Quick Start */}
         <motion.div

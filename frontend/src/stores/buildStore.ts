@@ -114,7 +114,7 @@ export const useBuildStore = create<BuildState>((set, get) => ({
   connectLogStream: (projectId) => {
     if (get().isConnected) return;
     
-    const token = useAuthStore.getState().accessToken;
+    const token = typeof useAuthStore.getState === "function" ? useAuthStore.getState().accessToken : undefined;
     const controller = new AbortController();
     
     (window as any)._buildLogAbortController = controller;

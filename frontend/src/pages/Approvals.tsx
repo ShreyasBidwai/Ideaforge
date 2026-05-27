@@ -46,21 +46,48 @@ const Approvals: React.FC = () => {
   const navigate = useNavigate();
   const { addToast } = useToastStore();
   const [approvals, setApprovals] = useState<ApprovedSolution[]>([]);
+  const [projectsMap, setProjectsMap] = useState<Record<string, string>>({});
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [isBuildingId, setIsBuildingId] = useState<string | null>(null);
 
   const fetchApprovals = async () => {
     setIsLoading(true);
     setError(null);
     try {
-      const response = await apiClient.get<ApprovedSolution[]>("/api/v1/approvals");
-      setApprovals(response.data || []);
+      const [appResponse, projResponse] = await Promise.all([
+        apiClient.get<ApprovedSolution[]>("/api/v1/approvals"),
+        apiClient.get("/api/v1/projects")
+      ]);
+      setApprovals(appResponse.data || []);
+      
+      const map: Record<string, string> = {};
+      if (Array.isArray(projResponse.data)) {
+        projResponse.data.forEach((p: any) => {
+          map[p.solution_id] = p.id;
+        });
+      }
+      setProjectsMap(map);
     } catch (err) {
       console.error("Failed to load approved solutions:", err);
       setError("Failed to load approved solutions. Please check your connection and try again.");
       addToast("error", "Failed to fetch approved solutions");
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleBuildApp = async (id: string) => {
+    setIsBuildingId(id);
+    try {
+      const res = await apiClient.post(`/api/v1/solutions/${id}/create-project`);
+      addToast("success", "Project created successfully");
+      navigate(`/projects/${res.data.id}`);
+    } catch (err) {
+      console.error("Failed to create project:", err);
+      addToast("error", "Failed to create project");
+    } finally {
+      setIsBuildingId(null);
     }
   };
 
@@ -281,13 +308,22 @@ const Approvals: React.FC = () => {
                     View Full Evaluation
                   </button>
 
-                  <button
-                    disabled
-                    title="Coming in Phase 2"
-                    className="px-4 py-2 bg-blue-600/20 text-blue-400/50 cursor-not-allowed rounded-xl text-xs font-semibold border border-blue-500/10 transition-all flex items-center gap-1.5"
-                  >
-                    <span>Generate Documents</span>
-                  </button>
+                  {projectsMap[sol.id] ? (
+                    <button
+                      onClick={() => navigate(`/projects/${projectsMap[sol.id]}`)}
+                      className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-semibold border border-indigo-500/20 transition-all flex items-center gap-1.5"
+                    >
+                      <span>View Project</span>
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => handleBuildApp(sol.id)}
+                      disabled={isBuildingId === sol.id}
+                      className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-semibold border border-blue-500/10 transition-all flex items-center gap-1.5"
+                    >
+                      <span>{isBuildingId === sol.id ? "Creating..." : "Build App"}</span>
+                    </button>
+                  )}
 
                   <button
                     onClick={() => handleRevoke(sol.id)}

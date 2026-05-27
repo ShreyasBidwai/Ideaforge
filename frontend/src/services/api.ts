@@ -12,7 +12,7 @@ const apiClient = axios.create({
 // Request interceptor
 apiClient.interceptors.request.use(
   (config) => {
-    const token = useAuthStore.getState().accessToken;
+    const token = typeof useAuthStore.getState === "function" ? useAuthStore.getState().accessToken : undefined;
     if (token && config.headers) {
       config.headers.Authorization = `Bearer ${token}`;
     }

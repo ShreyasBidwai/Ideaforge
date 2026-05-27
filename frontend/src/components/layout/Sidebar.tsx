@@ -5,6 +5,7 @@ import {
   Search,
   Library,
   CheckCircle,
+  FolderCode,
   ChevronLeft,
   ChevronRight,
   X,
@@ -23,11 +24,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
   mobileOpen,
   setMobileOpen,
 }) => {
-  const navItems = [
+  const discoverItems = [
     { name: "Dashboard", path: "/", icon: LayoutDashboard },
     { name: "Discovery", path: "/discovery", icon: Search },
     { name: "Problem Library", path: "/library", icon: Library },
+  ];
+
+  const buildItems = [
     { name: "Approvals", path: "/approvals", icon: CheckCircle },
+    { name: "Projects", path: "/projects", icon: FolderCode },
   ];
 
   const handleToggle = () => {
@@ -75,31 +80,75 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </div>
 
         {/* Navigation Items */}
-        <nav className="flex-1 space-y-1 py-4 overflow-y-auto">
-          {navItems.map((item) => {
-            const Icon = item.icon;
-            return (
-              <NavLink
-                key={item.path}
-                to={item.path}
-                className={({ isActive }) => `
-                  flex items-center space-x-3 py-3 border-l-[3px] transition-all duration-150 font-medium
-                  ${collapsed ? "px-5" : "px-4"}
-                  ${
-                    isActive
-                      ? "bg-blue-600/10 border-blue-500 text-white"
-                      : "border-transparent text-slate-400 hover:bg-slate-800/40 hover:text-white"
-                  }
-                `}
-                onClick={() => setMobileOpen(false)}
-              >
-                <Icon size={20} className="flex-shrink-0" />
-                {!collapsed && (
-                  <span className="text-sm truncate">{item.name}</span>
-                )}
-              </NavLink>
-            );
-          })}
+        <nav className="flex-1 space-y-4 py-4 overflow-y-auto">
+          {/* Discover Section */}
+          <div className="space-y-1">
+            {!collapsed && (
+              <div className="px-4 text-xs font-semibold uppercase tracking-wider text-slate-500 mb-2">
+                Discover
+              </div>
+            )}
+            {discoverItems.map((item) => {
+              const Icon = item.icon;
+              return (
+                <NavLink
+                  key={item.path}
+                  to={item.path}
+                  className={({ isActive }) => `
+                    flex items-center space-x-3 py-3 border-l-[3px] transition-all duration-150 font-medium
+                    ${collapsed ? "px-5" : "px-4"}
+                    ${
+                      isActive
+                        ? "bg-blue-600/10 border-blue-500 text-white"
+                        : "border-transparent text-slate-400 hover:bg-slate-800/40 hover:text-white"
+                    }
+                  `}
+                  onClick={() => setMobileOpen(false)}
+                >
+                  <Icon size={20} className="flex-shrink-0" />
+                  {!collapsed && (
+                    <span className="text-sm truncate">{item.name}</span>
+                  )}
+                </NavLink>
+              );
+            })}
+          </div>
+
+          {/* Divider line */}
+          <div className="border-t border-white/5 my-2 mx-4" />
+
+          {/* Build Section */}
+          <div className="space-y-1">
+            {!collapsed && (
+              <div className="px-4 text-xs font-semibold uppercase tracking-wider text-slate-500 mb-2">
+                Build
+              </div>
+            )}
+            {buildItems.map((item) => {
+              const Icon = item.icon;
+              return (
+                <NavLink
+                  key={item.path}
+                  to={item.path}
+                  className={({ isActive }) => `
+                    flex items-center space-x-3 py-3 border-l-[3px] transition-all duration-150 font-medium
+                    ${collapsed ? "px-5" : "px-4"}
+                    ${
+                      isActive
+                        ? "bg-blue-600/10 border-blue-500 text-white"
+                        : "border-transparent text-slate-400 hover:bg-slate-800/40 hover:text-white"
+                    }
+                  `}
+                  onClick={() => setMobileOpen(false)}
+                >
+                  <Icon size={20} className="flex-shrink-0" />
+                  {!collapsed && (
+                    <span className="text-sm truncate">{item.name}</span>
+                  )}
+                </NavLink>
+              );
+            })}
+          </div>
         </nav>
 
         {/* Bottom Toggle Button */}
