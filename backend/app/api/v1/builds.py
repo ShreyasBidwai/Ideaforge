@@ -249,3 +249,46 @@ async def stream_build_logs(
             await asyncio.sleep(1.0)
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
+
+
+@router.post("/projects/{id}/build/retry-failed")
+async def retry_failed_build_task(
+    id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    orch = BuildOrchestrator(db)
+    await orch.resume_from_failure(id, current_user.id)
+    return {"message": "Build resumed from failed task", "status": "building"}
+
+
+@router.get("/projects/{id}/build/failure-details")
+async def get_build_failure_details(
+    id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    stmt = select(Project).where(Project.id == id, Project.user_id == current_user.id)
+    res = await db.execute(stmt)
+    project = res.scalars().first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    stmt_task = (
+        select(SprintTask)
+        .join(Sprint, SprintTask.sprint_id == Sprint.id)
+        .where(Sprint.project_id == id, SprintTask.status == "failed")
+    )
+    res_task = await db.execute(stmt_task)
+    task = res_task.scalars().first()
+    if not task:
+        raise HTTPException(status_code=404, detail="No failed task found for this project")
+
+    return {
+        "task_id": str(task.id),
+        "task_number": task.task_number,
+        "name": task.name,
+        "status": task.status,
+        "error_output": task.error_output,
+        "claude_output": task.claude_output
+    }
