@@ -1,8 +1,10 @@
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy.orm import selectinload
+from app.core.streaming import format_sse_event
 
 from app.api.deps import get_current_user
 from app.core.database import get_db
@@ -108,6 +110,34 @@ async def generate_docs(
     service = DocGenerationService(ai_provider, db)
     return await service.generate_all_docs(id, current_user.id)
 
+@router.post("/projects/{id}/generate-docs/stream")
+async def generate_docs_stream(
+    id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+    ai_provider: AIProvider = Depends(get_ai_provider)
+):
+    service = DocGenerationService(ai_provider, db)
+    
+    # Verify project exists and belongs to user
+    stmt = select(Project).where(Project.id == id, Project.user_id == current_user.id)
+    res = await db.execute(stmt)
+    project = res.scalars().first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    async def event_generator():
+        try:
+            async for event in service.generate_all_docs_stream(id, current_user.id):
+                sse_type = "progress"
+                if event["status"] == "complete":
+                    sse_type = "complete"
+                yield format_sse_event(sse_type, event)
+        except Exception as e:
+            yield format_sse_event("error", {"status": "error", "message": str(e)})
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
+
 @router.get("/projects/{id}/documents", response_model=list[DocumentResponse])
 async def list_project_documents(
     id: UUID,
@@ -150,6 +180,34 @@ async def generate_sprints(
 ):
     service = SprintGenerationService(ai_provider, db)
     return await service.generate_sprints(id, current_user.id)
+
+@router.post("/projects/{id}/generate-sprints/stream")
+async def generate_sprints_stream(
+    id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+    ai_provider: AIProvider = Depends(get_ai_provider)
+):
+    service = SprintGenerationService(ai_provider, db)
+    
+    # Verify project exists and belongs to user
+    stmt = select(Project).where(Project.id == id, Project.user_id == current_user.id)
+    res = await db.execute(stmt)
+    project = res.scalars().first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    async def event_generator():
+        try:
+            async for event in service.generate_sprints_stream(id, current_user.id):
+                sse_type = "progress"
+                if event["status"] == "complete":
+                    sse_type = "complete"
+                yield format_sse_event(sse_type, event)
+        except Exception as e:
+            yield format_sse_event("error", {"status": "error", "message": str(e)})
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
 
 @router.get("/projects/{id}/sprints", response_model=list[SprintResponse])
 async def list_project_sprints(

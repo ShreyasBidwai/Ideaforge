@@ -12,6 +12,8 @@ interface BuildState {
   stats: { completedTasks: number; totalTasks: number; testsPassing: number; eta: string; };
   rateLimitInfo: { isLimited: boolean; resumeAt: string | null; usage: number; capacity: number; } | null;
   isConnected: boolean;
+  docGenerationProgress: { completedDocs: string[]; currentDoc: string | null; status: string; message: string; } | null;
+  sprintGenerationProgress: { status: string; message: string; } | null;
   
   fetchBuildStatus: (projectId: string) => Promise<void>;
   startBuild: (projectId: string) => Promise<void>;
@@ -19,6 +21,8 @@ interface BuildState {
   cancelBuild: (projectId: string) => Promise<void>;
   connectLogStream: (projectId: string) => void;
   disconnectLogStream: () => void;
+  generateDocsStream: (projectId: string) => Promise<void>;
+  generateSprintsStream: (projectId: string) => Promise<void>;
 }
 
 export const useBuildStore = create<BuildState>((set, get) => ({
@@ -30,6 +34,8 @@ export const useBuildStore = create<BuildState>((set, get) => ({
   stats: { completedTasks: 0, totalTasks: 0, testsPassing: 0, eta: "--" },
   rateLimitInfo: null,
   isConnected: false,
+  docGenerationProgress: null,
+  sprintGenerationProgress: null,
 
   fetchBuildStatus: async (projectId) => {
     try {
@@ -123,7 +129,7 @@ export const useBuildStore = create<BuildState>((set, get) => ({
     const fetchLogsStream = async () => {
       try {
         const baseUrl = import.meta.env.VITE_API_URL || "http://localhost:8000";
-        const response = await fetch(`${baseUrl}/api/v1/projects/${projectId}/build/logs`, {
+        const response = await fetch(`${baseUrl}/api/v1/projects/${projectId}/build/logs/stream`, {
           headers: {
             "Accept": "text/event-stream",
             "Authorization": `Bearer ${token}`
@@ -187,5 +193,130 @@ export const useBuildStore = create<BuildState>((set, get) => ({
       (window as any)._buildLogAbortController = null;
     }
     set({ isConnected: false });
+  },
+
+  generateDocsStream: async (projectId) => {
+    set({ docGenerationProgress: { completedDocs: [], currentDoc: null, status: "starting", message: "Preparing project context..." } });
+    const token = typeof useAuthStore.getState === "function" ? useAuthStore.getState().accessToken : undefined;
+    try {
+      const baseUrl = import.meta.env.VITE_API_URL || "http://localhost:8000";
+      const response = await fetch(`${baseUrl}/api/v1/projects/${projectId}/generate-docs/stream`, {
+        method: "POST",
+        headers: {
+          "Accept": "text/event-stream",
+          "Authorization": `Bearer ${token}`
+        }
+      });
+
+      if (!response.ok) throw new Error("HTTP error on doc stream");
+
+      const reader = response.body?.getReader();
+      const decoder = new TextDecoder();
+      if (!reader) return;
+
+      let buffer = "";
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || "";
+
+        for (const line of lines) {
+          if (line.trim().startsWith("data: ")) {
+            try {
+              const eventData = JSON.parse(line.trim().slice(6));
+              set((state) => {
+                const currentProgress = state.docGenerationProgress || { completedDocs: [], currentDoc: null, status: "", message: "" };
+                let completed = [...currentProgress.completedDocs];
+                let current = currentProgress.currentDoc;
+
+                if (eventData.status === "generating") {
+                  current = eventData.doc_type;
+                } else if (eventData.status === "generated") {
+                  if (!completed.includes(eventData.doc_type)) {
+                    completed.push(eventData.doc_type);
+                  }
+                  current = null;
+                } else if (eventData.status === "complete") {
+                  current = null;
+                }
+
+                return {
+                  docGenerationProgress: {
+                    completedDocs: completed,
+                    currentDoc: current,
+                    status: eventData.status,
+                    message: eventData.message
+                  }
+                };
+              });
+            } catch (e) {
+              // Ignore
+            }
+          }
+        }
+      }
+      
+      // Refresh project to get documents
+      await get().fetchBuildStatus(projectId);
+    } catch (error) {
+      console.error("Error streaming docs:", error);
+      set({ docGenerationProgress: null });
+    }
+  },
+
+  generateSprintsStream: async (projectId) => {
+    set({ sprintGenerationProgress: { status: "analyzing", message: "Analyzing documentation..." } });
+    const token = typeof useAuthStore.getState === "function" ? useAuthStore.getState().accessToken : undefined;
+    try {
+      const baseUrl = import.meta.env.VITE_API_URL || "http://localhost:8000";
+      const response = await fetch(`${baseUrl}/api/v1/projects/${projectId}/generate-sprints/stream`, {
+        method: "POST",
+        headers: {
+          "Accept": "text/event-stream",
+          "Authorization": `Bearer ${token}`
+        }
+      });
+
+      if (!response.ok) throw new Error("HTTP error on sprint stream");
+
+      const reader = response.body?.getReader();
+      const decoder = new TextDecoder();
+      if (!reader) return;
+
+      let buffer = "";
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || "";
+
+        for (const line of lines) {
+          if (line.trim().startsWith("data: ")) {
+            try {
+              const eventData = JSON.parse(line.trim().slice(6));
+              set({
+                sprintGenerationProgress: {
+                  status: eventData.status,
+                  message: eventData.message
+                }
+              });
+            } catch (e) {
+              // Ignore
+            }
+          }
+        }
+      }
+      
+      // Refresh project/sprints
+      await get().fetchBuildStatus(projectId);
+    } catch (error) {
+      console.error("Error streaming sprints:", error);
+      set({ sprintGenerationProgress: null });
+    }
   }
 }));

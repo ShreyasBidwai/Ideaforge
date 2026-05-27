@@ -127,6 +127,53 @@ class DocGenerationService:
         await self.db.commit()
         return generated_docs
 
+    async def generate_all_docs_stream(self, project_id: UUID, user_id: UUID):
+        stmt = (
+            select(Project)
+            .where(Project.id == project_id, Project.user_id == user_id)
+            .options(
+                selectinload(Project.solution).selectinload(Solution.problem_statement).selectinload(ProblemStatement.session),
+                selectinload(Project.solution).selectinload(Solution.evaluation)
+            )
+        )
+        result = await self.db.execute(stmt)
+        project = result.scalars().first()
+        if not project:
+            raise HTTPException(status_code=404, detail="Project not found.")
+
+        # Update status to doc_generation if not already
+        project.status = "doc_generation"
+        await self.db.commit()
+
+        yield {"status": "starting", "message": "Preparing project context..."}
+
+        context = await self._build_context(project)
+        
+        doc_types = ["architecture", "prd", "trd", "sprint_plan", "engineering_standards"]
+
+        for doc_type in doc_types:
+            display_name = doc_type.replace("_", " ").title()
+            if doc_type == "prd":
+                display_name = "PRD"
+            elif doc_type == "trd":
+                display_name = "TRD"
+                
+            yield {"status": "generating", "doc_type": doc_type, "message": f"Generating {display_name}..."}
+            
+            try:
+                await self._generate_single_doc_internal(project, doc_type, context)
+            except Exception as e:
+                project.status = "failed"
+                await self.db.commit()
+                raise e
+            
+            yield {"status": "generated", "doc_type": doc_type, "message": f"{display_name} complete"}
+
+        project.status = "doc_review"
+        await self.db.commit()
+
+        yield {"status": "complete", "message": "All 5 documents generated", "doc_count": 5}
+
     async def _generate_single_doc_internal(self, project: Project, doc_type: str, context: dict) -> Document:
         # Check if document already exists
         stmt = select(Document).where(Document.project_id == project.id, Document.doc_type == doc_type)
