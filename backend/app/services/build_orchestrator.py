@@ -231,26 +231,13 @@ class BuildOrchestrator:
 
     def run_claude(self, prompt: str, project_dir: str) -> tuple[bool, str, datetime | None]:
         """
-        Run claude -p as subprocess.
+        Run claude -p via ClaudeService.run_prompt.
         """
         import os
+        from app.services.claude_service import ClaudeService
         os.makedirs(project_dir, exist_ok=True)
-        try:
-            result = subprocess.run(
-                ["claude", "-p", prompt, "--allowedTools", "Read,Write,Edit,Bash"],
-                capture_output=True, text=True, cwd=project_dir, timeout=300
-            )
-            output = result.stdout + "\n" + result.stderr
-            success = result.returncode == 0
-        except FileNotFoundError:
-            output = "Mock Claude output: Claude command not found on system."
-            success = True
-
-        rate_limit_reset = self.parse_rate_limit_reset(output)
-        if rate_limit_reset is not None:
-            return False, output, rate_limit_reset
-
-        return success, output, None
+        result = ClaudeService.run_prompt(prompt, cwd=project_dir)
+        return result["success"], result["output"], result["rate_limit_reset"]
 
     def run_tests(self, test_command: str, project_dir: str) -> tuple[int, int, str]:
         """
@@ -272,21 +259,18 @@ class BuildOrchestrator:
         except Exception as e:
             output = f"Test command execution failed: {str(e)}"
 
-        passed = 0
-        failed = 0
+        from app.services.claude_service import ClaudeOutputParser
+        res = ClaudeOutputParser.parse_test_results(output)
         
-        passed_match = re.search(r"(\d+)\s+passed", output)
-        if passed_match:
-            passed = int(passed_match.group(1))
+        passed = res["passed"]
+        failed = res["failed"]
+        errors = res["errors"]
+        
+        if errors > 0:
+            failed += errors
+        if res["total"] == 0:
+            failed += 1
             
-        failed_match = re.search(r"(\d+)\s+failed", output)
-        if failed_match:
-            failed = int(failed_match.group(1))
-
-        if failed == 0 and passed == 0:
-            if "error" in output.lower() or "failed" in output.lower() or "exception" in output.lower() or "assertionerror" in output.lower():
-                failed = 1
-
         return passed, failed, output
 
     def build_retry_prompt(self, original_prompt: str, error_output: str) -> str:

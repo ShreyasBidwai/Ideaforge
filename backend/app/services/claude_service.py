@@ -5,6 +5,168 @@ import re
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
+class ClaudeOutputParser:
+    """Parse and clean Claude Code CLI output"""
+    
+    @staticmethod
+    def clean_output(raw: str) -> str:
+        if not raw:
+            return ""
+        # ANSI escape pattern
+        ansi_pattern = re.compile(r'\x1b\[[0-9;?]*[a-zA-Z]|\x1b\(B')
+        cleaned = ansi_pattern.sub('', raw)
+        
+        # Null bytes
+        cleaned = cleaned.replace('\x00', '')
+        
+        # Normalize line endings
+        cleaned = cleaned.replace('\r\n', '\n').replace('\r', '\n')
+        
+        # Strip progress bar characters
+        progress_chars = "█░▒▓▕▏▄▀■▰▱"
+        for char in progress_chars:
+            cleaned = cleaned.replace(char, '')
+            
+        # Strip leading/trailing whitespace per line
+        lines = [line.strip() for line in cleaned.split('\n')]
+        cleaned = '\n'.join(lines)
+        
+        return cleaned.strip()
+    
+    @staticmethod
+    def extract_files_created(output: str) -> list[str]:
+        if not output:
+            return []
+        patterns = [
+            re.compile(r'Created\s+([^\s\n\r]+)', re.IGNORECASE),
+            re.compile(r'Wrote\s+to\s+([^\s\n\r]+)', re.IGNORECASE),
+            re.compile(r'Modified\s+([^\s\n\r]+)', re.IGNORECASE),
+            re.compile(r'Edit:\s+([^\s\n\r]+)', re.IGNORECASE)
+        ]
+        files = []
+        for line in output.split('\n'):
+            for pattern in patterns:
+                match = pattern.search(line)
+                if match:
+                    path = match.group(1).rstrip('.')
+                    if path not in files:
+                        files.append(path)
+        return files
+    
+    @staticmethod
+    def extract_errors(output: str) -> list[str]:
+        if not output:
+            return []
+        patterns = [
+            re.compile(r'Error:\s+.*', re.IGNORECASE),
+            re.compile(r'Traceback\s+\(most\s+recent\s+call\s+last\):', re.IGNORECASE),
+            re.compile(r'ModuleNotFoundError:\s+.*', re.IGNORECASE),
+            re.compile(r'SyntaxError:\s+.*', re.IGNORECASE),
+            re.compile(r'npm\s+ERR!.*', re.IGNORECASE),
+            re.compile(r'Permission\s+denied', re.IGNORECASE)
+        ]
+        errors = []
+        for line in output.split('\n'):
+            for pattern in patterns:
+                if pattern.search(line):
+                    errors.append(line.strip())
+                    break
+        return errors
+    
+    @staticmethod
+    def detect_success(output: str) -> bool:
+        if not output:
+            return False
+        output_lower = output.lower()
+        
+        # Check for failure indicators
+        fail_indicators = [
+            "error:",
+            "failed",
+            "traceback",
+            "permission denied",
+            "modulenotfounderror",
+            "syntaxerror"
+        ]
+        if any(indicator in output_lower for indicator in fail_indicators):
+            return False
+            
+        # Check for success indicators
+        success_indicators = [
+            "created",
+            "wrote",
+            "modified",
+            "edit:"
+        ]
+        if any(indicator in output_lower for indicator in success_indicators):
+            return True
+            
+        return True
+    
+    @staticmethod
+    def parse_test_results(output: str) -> dict:
+        passed = 0
+        failed = 0
+        errors = 0
+        total = 0
+        all_passed = False
+        raw_summary = ""
+        
+        if not output:
+            return {
+                "passed": passed,
+                "failed": failed,
+                "errors": errors,
+                "total": total,
+                "all_passed": all_passed,
+                "raw_summary": raw_summary
+            }
+            
+        # Check for collection errors
+        if "ERROR collecting" in output or "collection error" in output.lower():
+            errors += 1
+            
+        # Check for pytest summary line
+        pytest_summary_match = re.search(r'={5,}.*={5,}', output)
+        if pytest_summary_match:
+            raw_summary = pytest_summary_match.group(0)
+            if "no tests ran" in raw_summary:
+                pass
+            else:
+                passed_match = re.search(r'(\d+)\s+passed', raw_summary)
+                if passed_match:
+                    passed = int(passed_match.group(1))
+                failed_match = re.search(r'(\d+)\s+failed', raw_summary)
+                if failed_match:
+                    failed = int(failed_match.group(1))
+                errors_match = re.search(r'(\d+)\s+error', raw_summary)
+                if errors_match:
+                    errors = int(errors_match.group(1))
+        else:
+            # Check for vitest patterns
+            for line in output.split('\n'):
+                if line.strip().startswith("Tests") or line.strip().startswith("Test Files"):
+                    p_match = re.search(r'(\d+)\s+passed', line)
+                    if p_match and "Tests" in line:
+                        passed = int(p_match.group(1))
+                    f_match = re.search(r'(\d+)\s+failed', line)
+                    if f_match and "Tests" in line:
+                        failed = int(f_match.group(1))
+                    if not raw_summary or "Tests" in line:
+                        raw_summary = line.strip()
+                        
+        total = passed + failed + errors
+        all_passed = passed > 0 and failed == 0 and errors == 0
+        
+        return {
+            "passed": passed,
+            "failed": failed,
+            "errors": errors,
+            "total": total,
+            "all_passed": all_passed,
+            "raw_summary": raw_summary
+        }
+
 @dataclass
 class ClaudeStatus:
     is_installed: bool
@@ -141,16 +303,18 @@ class ClaudeService:
             stderr = res.stderr or ""
             output = stdout + "\n" + stderr
             
+            cleaned_output = ClaudeOutputParser.clean_output(output)
+            
             is_limited, reset_at = ClaudeService.parse_rate_limit(output)
             
-            success = res.returncode == 0
+            success = res.returncode == 0 and ClaudeOutputParser.detect_success(cleaned_output)
             error = None
-            if not success:
-                error = stderr or stdout or f"Process exited with code {res.returncode}"
+            if not success and not is_limited:
+                error = stderr or cleaned_output or f"Process exited with code {res.returncode}"
                 
             return {
                 "success": success and not is_limited,
-                "output": stdout,
+                "output": cleaned_output,
                 "error": error,
                 "is_rate_limited": is_limited,
                 "rate_limit_reset": reset_at,
