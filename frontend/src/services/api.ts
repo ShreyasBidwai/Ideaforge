@@ -90,21 +90,27 @@ apiClient.interceptors.response.use(
       }
     }
 
-    // Extract error details and trigger global toast notification
-    let errorMessage = "An unexpected error occurred. Please try again.";
-    if (error.response?.data?.detail) {
-      const detail = error.response.data.detail;
-      if (typeof detail === "string") {
-        errorMessage = detail;
-      } else if (Array.isArray(detail) && detail[0]?.msg) {
-        errorMessage = detail[0].msg;
-      }
-    } else if (error.message) {
-      errorMessage = error.message;
-    }
-
     // Don't show toast for 401 token refresh errors to avoid double logout warnings
-    if (error.response?.status !== 401) {
+    if (error.response?.status === 401) {
+      // Handled by auth flow
+    } else if (!error.response) {
+      useToastStore.getState().addToast("error", "Network error — check your connection");
+    } else if (error.response.status === 500) {
+      useToastStore.getState().addToast("error", "Something went wrong. Please try again.");
+    } else if (error.response.status === 429) {
+      useToastStore.getState().addToast("error", "Too many requests. Please wait a moment.");
+    } else {
+      let errorMessage = "An unexpected error occurred. Please try again.";
+      if (error.response?.data?.detail) {
+        const detail = error.response.data.detail;
+        if (typeof detail === "string") {
+          errorMessage = detail;
+        } else if (Array.isArray(detail) && detail[0]?.msg) {
+          errorMessage = detail[0].msg;
+        }
+      } else if (error.message) {
+        errorMessage = error.message;
+      }
       useToastStore.getState().addToast("error", errorMessage);
     }
 

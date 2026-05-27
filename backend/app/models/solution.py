@@ -49,3 +49,9 @@ class Solution(Base):
         uselist=False,
         cascade="all, delete-orphan",
     )
+    project = relationship(
+        "Project",
+        back_populates="solution",
+        uselist=False,
+        cascade="all, delete-orphan",
+    )

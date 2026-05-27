@@ -51,6 +51,8 @@ export interface Session {
   industry: string;
   location: string;
   pain_points: PainPoint[] | null;
+  maturity_level: 'poc' | 'mvp' | 'pre_production' | 'production';
+  tech_stack_preferences: string[] | null;
   status: 'discovery' | 'problem_generation' | 'solution_generation' | 'evaluation' | 'completed';
   created_at: string;
   updated_at: string;
@@ -59,6 +61,8 @@ export interface Session {
 export interface CreateSessionRequest {
   industry: string;
   location: string;
+  maturity_level?: 'poc' | 'mvp' | 'pre_production' | 'production';
+  tech_stack_preferences?: string[];
 }
 
 // ─── Pain Points ───
@@ -87,6 +91,9 @@ export interface ProblemStatement {
   status: 'draft' | 'selected' | 'archived';
   created_at: string;
   updated_at: string;
+  session?: Session;
+  industry?: string;
+  location?: string;
 }
 
 // ─── Solutions ───
@@ -144,3 +151,117 @@ export interface Evaluation {
   status: 'pending' | 'in_progress' | 'completed';
   created_at: string;
 }
+
+export interface DisqualifierResult {
+  solution_title: string;
+  passed: boolean;
+  failed_disqualifiers: string[];
+  reasons: string[];
+}
+
+export interface ScoringResult {
+  solution_title: string;
+  criterion_scores: {
+    criterion: string;
+    score: number;
+    justification: string;
+  }[];
+  weighted_avg: number;
+  min_score: number;
+}
+
+export interface AttackResult {
+  solution_title: string;
+  attack: string;
+  severity: string;
+  survives: boolean;
+  survival_reasoning?: string;
+}
+
+export interface ACHResult {
+  solution_title: string;
+  inconsistencies: string[];
+  count: number;
+}
+
+export interface ComparisonEntry {
+  solution_id: string;
+  solution_title: string;
+  weighted_avg: number;
+  min_score: number;
+  attack_summary: string;
+  attack_survives: boolean;
+  inconsistency_count: number;
+}
+
+export interface ComparisonResult {
+  entries: ComparisonEntry[];
+  leaders: Record<string, string>;
+  is_clear_winner: boolean;
+  disagreements: string[];
+}
+
+// ─── Project & Build ───
+export interface Project {
+  id: string;
+  user_id: string;
+  solution_id: string;
+  name: string;
+  description: string | null;
+  industry: string;
+  location: string;
+  maturity_level: string;
+  tech_stack: string[] | Record<string, any> | null;
+  status: string;
+  project_dir: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface Document {
+  id: string;
+  project_id: string;
+  doc_type: string;
+  title: string;
+  content: string;
+  version: number;
+  status: string;
+  created_at: string;
+}
+
+export interface Sprint {
+  id: string;
+  project_id: string;
+  sprint_number: number;
+  name: string;
+  description: string | null;
+  status: string;
+  created_at: string;
+  tasks: SprintTask[];
+}
+
+export interface SprintTask {
+  id: string;
+  sprint_id: string;
+  task_number: number;
+  name: string;
+  prompt: string;
+  status: string;
+  test_command: string | null;
+  test_count: number;
+  tests_passed: number;
+  tests_failed: number;
+  retry_count: number;
+  created_at: string;
+}
+
+export interface BuildLogEntry {
+  id: string;
+  project_id: string;
+  timestamp: string;
+  level: string;
+  source: string;
+  message: string;
+}
+
+

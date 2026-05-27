@@ -5,6 +5,36 @@ from app.schemas.auth import (
     UserLogin,
     UserResponse,
 )
+from app.schemas.session import (
+    SessionCreate,
+    SessionUpdate,
+    SessionResponse,
+    MaturityLevelInfo,
+    SessionListResponse,
+)
+from app.schemas.tech_stack import (
+    TechStackRegistry,
+    TechStackSearchResult,
+    TechStackPreference,
+)
+from app.schemas.pain_point import (
+    PainPointSchema,
+    PainPointResponse,
+    DiscoverRequest,
+)
+from app.schemas.evaluation import (
+    RubricCriterion,
+    Disqualifier,
+    RubricSchema,
+    RubricResponse,
+    EvaluationResponse,
+)
+from app.schemas.project import (
+    ProjectResponse,
+    DocumentResponse,
+    SprintResponse,
+    SprintTaskResponse,
+)
 
 __all__ = [
     "UserCreate",
@@ -12,4 +42,24 @@ __all__ = [
     "TokenResponse",
     "TokenRefresh",
     "UserResponse",
+    "SessionCreate",
+    "SessionUpdate",
+    "SessionResponse",
+    "MaturityLevelInfo",
+    "SessionListResponse",
+    "TechStackRegistry",
+    "TechStackSearchResult",
+    "TechStackPreference",
+    "PainPointSchema",
+    "PainPointResponse",
+    "DiscoverRequest",
+    "RubricCriterion",
+    "Disqualifier",
+    "RubricSchema",
+    "RubricResponse",
+    "EvaluationResponse",
+    "ProjectResponse",
+    "DocumentResponse",
+    "SprintResponse",
+    "SprintTaskResponse",
 ]
