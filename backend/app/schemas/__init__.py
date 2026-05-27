@@ -29,6 +29,10 @@ from app.schemas.evaluation import (
     RubricResponse,
     EvaluationResponse,
 )
+from app.schemas.project import (
+    ProjectResponse,
+    DocumentResponse,
+)
 
 __all__ = [
     "UserCreate",
@@ -52,4 +56,6 @@ __all__ = [
     "RubricSchema",
     "RubricResponse",
     "EvaluationResponse",
+    "ProjectResponse",
+    "DocumentResponse",
 ]

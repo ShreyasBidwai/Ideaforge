@@ -166,3 +166,7 @@ async def cache_service():
     yield cs
     await cs.close()
 
+
+from tests.test_s6_02_approvals import create_approved_solution
+
+
