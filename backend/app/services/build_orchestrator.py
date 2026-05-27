@@ -47,6 +47,10 @@ class BuildOrchestrator:
             await self.log(project_id, "INFO", "orchestrator", "Build is already complete.")
             return
 
+        from app.services.project_dir_service import ProjectDirService
+        if not project.project_dir:
+            project.project_dir = ProjectDirService.create_project_dir(str(project.id), project.name)
+
         project.status = "building"
         await self.db.commit()
         await self.log(project_id, "INFO", "orchestrator", "Starting/resuming build process.")

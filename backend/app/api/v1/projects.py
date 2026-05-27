@@ -15,6 +15,8 @@ from app.schemas.project import ProjectResponse, DocumentResponse, SprintRespons
 from app.services.doc_generation_service import DocGenerationService
 from app.services.sprint_generation_service import SprintGenerationService
 from app.ai.provider import get_ai_provider, AIProvider
+from app.services.project_dir_service import ProjectDirService
+import uuid
 
 router = APIRouter(dependencies=[Depends(get_current_user)])
 
@@ -49,7 +51,11 @@ async def create_project(
     problem = solution.problem_statement
     session = problem.session
 
+    project_id = uuid.uuid4()
+    project_dir = ProjectDirService.create_project_dir(str(project_id), solution.title)
+
     new_project = Project(
+        id=project_id,
         user_id=current_user.id,
         solution_id=solution.id,
         name=solution.title,
@@ -58,7 +64,8 @@ async def create_project(
         location=session.location,
         maturity_level=session.maturity_level,
         tech_stack=solution.tech_stack or [],
-        status="doc_generation"
+        status="doc_generation",
+        project_dir=project_dir
     )
     db.add(new_project)
     await db.commit()
@@ -253,4 +260,76 @@ DATABASE_URL=postgresql://postgres:postgres@localhost:5432/ideaforge
 JWT_SECRET=supersecretjwtkeyplaceholder
 """
     return {"env_template": env_content}
+
+
+from fastapi.responses import FileResponse
+
+@router.get("/projects/{id}/files")
+async def get_project_files(
+    id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    stmt = select(Project).where(Project.id == id, Project.user_id == current_user.id)
+    res = await db.execute(stmt)
+    project = res.scalars().first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    project_dir = project.project_dir
+    if not project_dir:
+        project_dir = ProjectDirService.get_project_dir(str(project.id), project.name)
+        project.project_dir = project_dir
+        await db.commit()
+
+    return ProjectDirService.get_project_structure(project_dir)
+
+@router.get("/projects/{id}/files/{path:path}")
+async def get_project_file_content(
+    id: UUID,
+    path: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    stmt = select(Project).where(Project.id == id, Project.user_id == current_user.id)
+    res = await db.execute(stmt)
+    project = res.scalars().first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    project_dir = project.project_dir
+    if not project_dir:
+        raise HTTPException(status_code=404, detail="Project directory not initialized")
+
+    content = ProjectDirService.get_file_content(project_dir, path)
+    if content is None:
+        raise HTTPException(status_code=404, detail="File not found or access denied")
+
+    return {"content": content}
+
+@router.get("/projects/{id}/download")
+async def download_project(
+    id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    stmt = select(Project).where(Project.id == id, Project.user_id == current_user.id)
+    res = await db.execute(stmt)
+    project = res.scalars().first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    project_dir = project.project_dir
+    if not project_dir:
+        project_dir = ProjectDirService.get_project_dir(str(project.id), project.name)
+        project.project_dir = project_dir
+        await db.commit()
+
+    zip_path = ProjectDirService.create_zip(project_dir)
+    return FileResponse(
+        zip_path,
+        media_type="application/zip",
+        filename=f"{ProjectDirService.sanitize_name(project.name)}.zip"
+    )
+
 
