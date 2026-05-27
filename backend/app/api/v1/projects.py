@@ -333,3 +333,140 @@ async def download_project(
     )
 
 
+import asyncio
+from app.core.database import async_session
+from app.services.build_orchestrator import BuildOrchestrator
+
+@router.patch("/projects/{id}/documents/{doc_id}")
+async def update_project_document(
+    id: UUID,
+    doc_id: UUID,
+    payload: dict,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    stmt_proj = select(Project).where(Project.id == id, Project.user_id == current_user.id)
+    res_proj = await db.execute(stmt_proj)
+    project = res_proj.scalars().first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    stmt_doc = select(Document).where(Document.id == doc_id, Document.project_id == id)
+    res_doc = await db.execute(stmt_doc)
+    doc = res_doc.scalars().first()
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    if "content" in payload:
+        doc.content = payload["content"]
+    if "title" in payload:
+        doc.title = payload["title"]
+
+    await db.commit()
+    await db.refresh(doc)
+    return doc
+
+@router.post("/projects/{id}/documents/{doc_id}/approve")
+async def approve_project_document(
+    id: UUID,
+    doc_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    stmt_proj = select(Project).where(Project.id == id, Project.user_id == current_user.id)
+    res_proj = await db.execute(stmt_proj)
+    project = res_proj.scalars().first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    stmt_doc = select(Document).where(Document.id == doc_id, Document.project_id == id)
+    res_doc = await db.execute(stmt_doc)
+    doc = res_doc.scalars().first()
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    doc.status = "approved"
+    await db.commit()
+    await db.refresh(doc)
+    return doc
+
+@router.post("/projects/{id}/documents/approve-all")
+async def approve_all_project_documents(
+    id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    stmt_proj = select(Project).where(Project.id == id, Project.user_id == current_user.id)
+    res_proj = await db.execute(stmt_proj)
+    project = res_proj.scalars().first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    stmt_docs = select(Document).where(Document.project_id == id)
+    res_docs = await db.execute(stmt_docs)
+    docs = res_docs.scalars().all()
+
+    for doc in docs:
+        doc.status = "approved"
+
+    await db.commit()
+    return {"message": "All documents approved successfully"}
+
+@router.patch("/tasks/{task_id}/prompt")
+async def update_task_prompt(
+    task_id: UUID,
+    payload: dict,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    stmt = (
+        select(SprintTask)
+        .join(Sprint, SprintTask.sprint_id == Sprint.id)
+        .join(Project, Sprint.project_id == Project.id)
+        .where(SprintTask.id == task_id, Project.user_id == current_user.id)
+    )
+    res = await db.execute(stmt)
+    task = res.scalars().first()
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    if "prompt" in payload:
+        task.prompt = payload["prompt"]
+
+    await db.commit()
+    await db.refresh(task)
+    return task
+
+@router.post("/projects/{id}/approve-and-build")
+async def approve_everything_and_build(
+    id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    stmt = select(Project).where(Project.id == id, Project.user_id == current_user.id)
+    res = await db.execute(stmt)
+    project = res.scalars().first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    stmt_docs = select(Document).where(Document.project_id == id)
+    res_docs = await db.execute(stmt_docs)
+    docs = res_docs.scalars().all()
+
+    if not docs or not all(doc.status == "approved" for doc in docs):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="All documents must be approved before triggering build"
+        )
+
+    # Trigger background build
+    async def run_in_background():
+        async with async_session() as background_db:
+            orch = BuildOrchestrator(background_db)
+            await orch.start_build(id, current_user.id)
+
+    asyncio.create_task(run_in_background())
+    return {"message": "All documents approved, starting build", "status": "building"}
+
+
+

@@ -18,6 +18,9 @@ import BuildStats from "../components/build/BuildStats";
 import BuildProgress from "../components/build/BuildProgress";
 import SprintAccordion from "../components/build/SprintAccordion";
 import BuildLog from "../components/build/BuildLog";
+import DocumentViewer from "../components/project/DocumentViewer";
+import DocumentEditor from "../components/project/DocumentEditor";
+import SprintReview from "../components/project/SprintReview";
 
 type Tab = "overview" | "documents" | "build" | "setup";
 
@@ -28,6 +31,8 @@ export default function ProjectDetail() {
   const [setupSteps, setSetupSteps] = useState<any[]>([]);
   const [envTemplate, setEnvTemplate] = useState<string>("");
   const [isRegeneratingDoc, setIsRegeneratingDoc] = useState<string | null>(null);
+  const [editingDocId, setEditingDocId] = useState<string | null>(null);
+  const [expandedDocs, setExpandedDocs] = useState<Record<string, boolean>>({});
 
   const {
     project,
@@ -102,6 +107,62 @@ export default function ProjectDetail() {
     }
   };
 
+  const toggleDoc = (docId: string) => {
+    setExpandedDocs((prev) => ({ ...prev, [docId]: !prev[docId] }));
+  };
+
+  const handleApproveDoc = async (docId: string) => {
+    if (!projectId) return;
+    try {
+      await apiClient.post(`/api/v1/projects/${projectId}/documents/${docId}/approve`);
+      await fetchBuildStatus(projectId);
+      setEditingDocId(null);
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const handleSaveDoc = async (docId: string, content: string) => {
+    if (!projectId) return;
+    try {
+      await apiClient.patch(`/api/v1/projects/${projectId}/documents/${docId}`, { content });
+      await fetchBuildStatus(projectId);
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const handleApproveAllDocs = async () => {
+    if (!projectId) return;
+    try {
+      await apiClient.post(`/api/v1/projects/${projectId}/documents/approve-all`);
+      await fetchBuildStatus(projectId);
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const handleEditTaskPrompt = async (taskId: string, prompt: string) => {
+    if (!projectId) return;
+    try {
+      await apiClient.patch(`/api/v1/tasks/${taskId}/prompt`, { prompt });
+      await fetchBuildStatus(projectId);
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const handleApproveEverythingAndBuild = async () => {
+    if (!projectId) return;
+    try {
+      await apiClient.post(`/api/v1/projects/${projectId}/approve-and-build`);
+      await fetchBuildStatus(projectId);
+      setActiveTab("build");
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
   const getStatusBadgeClass = (status: string) => {
     switch (status) {
       case "complete":
@@ -117,6 +178,9 @@ export default function ProjectDetail() {
   };
 
   const overallProgress = stats.totalTasks > 0 ? (stats.completedTasks / stats.totalTasks) * 100 : 0;
+  const allDocsApproved = Array.isArray(project.documents) &&
+    project.documents.length > 0 &&
+    project.documents.every((d: any) => d.status === "approved");
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 p-4 md:p-6 lg:p-8 space-y-6">
@@ -150,7 +214,7 @@ export default function ProjectDetail() {
           </div>
         </div>
 
-        {project.status !== "complete" && projectId && (
+        {project.status !== "complete" && project.status !== "doc_review" && projectId && (
           <button
             onClick={() => startBuild(projectId)}
             disabled={project.status === "building"}
@@ -266,68 +330,174 @@ export default function ProjectDetail() {
         )}
 
         {activeTab === "documents" && (
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            {/* List */}
-            <div className="space-y-3">
-              <h3 className="text-base font-semibold text-slate-200 font-mono mb-2">Technical Artifacts</h3>
-              {project.documents && project.documents.length > 0 ? (
-                project.documents.map((doc: any) => {
-                  const isSelected = selectedDoc?.id === doc.id;
-                  return (
+          <div className="space-y-6">
+            {project.status === "doc_review" ? (
+              <div className="space-y-6">
+                {/* Header Actions */}
+                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b border-slate-800 pb-4">
+                  <div>
+                    <h3 className="text-xl font-bold text-white font-mono">Document Review</h3>
+                    <p className="text-sm text-slate-400">All documents must be approved before you can start the build.</p>
+                  </div>
+                  <div className="flex space-x-3 w-full sm:w-auto">
                     <button
-                      key={doc.id}
-                      onClick={() => setSelectedDoc(doc)}
-                      className={`w-full text-left p-4 rounded-xl border transition-all flex items-center justify-between ${
-                        isSelected
-                          ? "bg-blue-500/5 border-blue-500/20 text-blue-400"
-                          : "bg-slate-900 border-slate-850 text-slate-300 hover:bg-slate-850"
-                      }`}
+                      onClick={handleApproveAllDocs}
+                      className="flex-1 sm:flex-initial px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 font-medium rounded-lg text-sm transition font-mono border border-slate-700"
                     >
-                      <div className="flex items-center space-x-3">
-                        <FileText className="w-5 h-5 flex-shrink-0" />
-                        <div>
-                          <p className="text-sm font-semibold">{doc.title}</p>
-                          <p className="text-xs text-slate-500 mt-0.5 uppercase font-mono">{doc.doc_type}</p>
-                        </div>
-                      </div>
-                      <span className="text-xs text-slate-500 font-mono">v{doc.version || 1}</span>
+                      APPROVE ALL DOCUMENTS
                     </button>
-                  );
-                })
-              ) : (
-                <p className="text-sm text-slate-500 py-4">No documents available.</p>
-              )}
-            </div>
+                    <button
+                      onClick={handleApproveEverythingAndBuild}
+                      disabled={!allDocsApproved}
+                      className="flex-1 sm:flex-initial px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed text-white font-medium rounded-lg text-sm transition-all border border-indigo-500/20 shadow-lg shadow-indigo-600/20 font-mono"
+                    >
+                      APPROVE ALL & START BUILD
+                    </button>
+                  </div>
+                </div>
 
-            {/* Viewer */}
-            <div className="lg:col-span-2">
-              {selectedDoc ? (
-                <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden shadow-lg flex flex-col h-[600px]">
-                  <div className="bg-slate-800/80 px-6 py-4 flex items-center justify-between border-b border-slate-800">
-                    <div>
-                      <h4 className="text-sm font-bold text-slate-200">{selectedDoc.title}</h4>
-                      <p className="text-xs text-slate-500 uppercase tracking-wider font-mono mt-0.5">{selectedDoc.doc_type}</p>
+                {/* Sprints breakdown if all docs approved */}
+                {allDocsApproved && sprints && sprints.length > 0 && (
+                  <div className="bg-slate-900/30 p-6 rounded-2xl border border-slate-800 space-y-4">
+                    <SprintReview
+                      sprints={sprints}
+                      onEditPrompt={handleEditTaskPrompt}
+                      onApproveAndBuild={handleApproveEverythingAndBuild}
+                    />
+                  </div>
+                )}
+
+                {/* Document Accordions */}
+                <div className="space-y-4">
+                  {project.documents?.map((doc: any) => {
+                    const isExpanded = !!expandedDocs[doc.id];
+                    const isEditing = editingDocId === doc.id;
+                    const docStatusClass = doc.status === "approved"
+                      ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
+                      : "bg-amber-500/10 text-amber-400 border border-amber-500/20";
+
+                    return (
+                      <div key={doc.id} className="border border-slate-800 bg-slate-900/50 rounded-xl overflow-hidden">
+                        {/* Accordion Header */}
+                        <div
+                          onClick={() => toggleDoc(doc.id)}
+                          className="w-full flex items-center justify-between px-6 py-4 cursor-pointer hover:bg-slate-900 transition text-left"
+                        >
+                          <div className="flex items-center space-x-3">
+                            <FileText className="w-5 h-5 text-slate-400" />
+                            <span className="text-base font-bold text-white">{doc.title}</span>
+                            <span className={`px-2 py-0.5 text-xs font-semibold rounded-full capitalize font-mono ${docStatusClass}`}>
+                              {doc.status}
+                            </span>
+                          </div>
+
+                          <div className="flex items-center space-x-2" onClick={(e) => e.stopPropagation()}>
+                            <button
+                              onClick={() => {
+                                setEditingDocId(doc.id);
+                                if (!isExpanded) toggleDoc(doc.id);
+                              }}
+                              className="px-3 py-1.5 text-xs bg-slate-850 hover:bg-slate-800 text-slate-200 border border-slate-700 rounded-md transition font-mono"
+                            >
+                              REVIEW & EDIT
+                            </button>
+                            <button
+                              onClick={() => handleRegenerateDoc(doc.doc_type)}
+                              disabled={isRegeneratingDoc === doc.doc_type}
+                              className="px-3 py-1.5 text-xs bg-slate-855 hover:bg-slate-800 text-slate-200 border border-slate-700 rounded-md transition flex items-center space-x-1 font-mono"
+                            >
+                              <RotateCcw className={`w-3.5 h-3.5 ${isRegeneratingDoc === doc.doc_type ? 'animate-spin' : ''}`} />
+                              <span>REGENERATE</span>
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Accordion Body */}
+                        {isExpanded && (
+                          <div className="p-6 border-t border-slate-850 bg-slate-950/20">
+                            {isEditing ? (
+                              <DocumentEditor
+                                content={doc.content}
+                                onSave={(newContent) => handleSaveDoc(doc.id, newContent)}
+                                onApprove={() => handleApproveDoc(doc.id)}
+                                onCancel={() => setEditingDocId(null)}
+                              />
+                            ) : (
+                              <DocumentViewer content={doc.content} />
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ) : (
+              // Standard Documents View
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                {/* List */}
+                <div className="space-y-3">
+                  <h3 className="text-base font-semibold text-slate-200 font-mono mb-2">Technical Artifacts</h3>
+                  {project.documents && project.documents.length > 0 ? (
+                    project.documents.map((doc: any) => {
+                      const isSelected = selectedDoc?.id === doc.id;
+                      return (
+                        <button
+                          key={doc.id}
+                          onClick={() => setSelectedDoc(doc)}
+                          className={`w-full text-left p-4 rounded-xl border transition-all flex items-center justify-between ${
+                            isSelected
+                              ? "bg-blue-500/5 border-blue-500/20 text-blue-400"
+                              : "bg-slate-900 border-slate-850 text-slate-300 hover:bg-slate-850"
+                          }`}
+                        >
+                          <div className="flex items-center space-x-3">
+                            <FileText className="w-5 h-5 flex-shrink-0" />
+                            <div>
+                              <p className="text-sm font-semibold">{doc.title}</p>
+                              <p className="text-xs text-slate-500 mt-0.5 uppercase font-mono">{doc.doc_type}</p>
+                            </div>
+                          </div>
+                          <span className="text-xs text-slate-500 font-mono">v{doc.version || 1}</span>
+                        </button>
+                      );
+                    })
+                  ) : (
+                    <p className="text-sm text-slate-500 py-4">No documents available.</p>
+                  )}
+                </div>
+
+                {/* Viewer */}
+                <div className="lg:col-span-2">
+                  {selectedDoc ? (
+                    <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden shadow-lg flex flex-col h-[600px]">
+                      <div className="bg-slate-800/80 px-6 py-4 flex items-center justify-between border-b border-slate-800">
+                        <div>
+                          <h4 className="text-sm font-bold text-slate-200">{selectedDoc.title}</h4>
+                          <p className="text-xs text-slate-500 uppercase tracking-wider font-mono mt-0.5">{selectedDoc.doc_type}</p>
+                        </div>
+                        <button
+                          onClick={() => handleRegenerateDoc(selectedDoc.doc_type)}
+                          disabled={isRegeneratingDoc === selectedDoc.doc_type}
+                          className="flex items-center space-x-1.5 px-3 py-1.5 bg-slate-700 hover:bg-slate-650 disabled:opacity-50 text-xs font-semibold rounded border border-slate-600 font-mono transition-colors text-slate-200"
+                        >
+                          <RotateCcw className={`w-3.5 h-3.5 ${isRegeneratingDoc === selectedDoc.doc_type ? 'animate-spin' : ''}`} />
+                          <span>REGENERATE</span>
+                        </button>
+                      </div>
+                      <div className="flex-1 p-6 overflow-y-auto font-sans text-sm text-slate-300 bg-slate-950/60 leading-relaxed whitespace-pre-wrap select-text">
+                        <DocumentViewer content={selectedDoc.content} />
+                      </div>
                     </div>
-                    <button
-                      onClick={() => handleRegenerateDoc(selectedDoc.doc_type)}
-                      disabled={isRegeneratingDoc === selectedDoc.doc_type}
-                      className="flex items-center space-x-1.5 px-3 py-1.5 bg-slate-700 hover:bg-slate-650 disabled:opacity-50 text-xs font-semibold rounded border border-slate-600 font-mono transition-colors text-slate-200"
-                    >
-                      <RotateCcw className={`w-3.5 h-3.5 ${isRegeneratingDoc === selectedDoc.doc_type ? 'animate-spin' : ''}`} />
-                      <span>REGENERATE</span>
-                    </button>
-                  </div>
-                  <div className="flex-1 p-6 overflow-y-auto font-sans text-sm text-slate-300 bg-slate-950/60 leading-relaxed whitespace-pre-wrap select-text">
-                    {selectedDoc.content}
-                  </div>
+                  ) : (
+                    <div className="bg-slate-900 border border-slate-850 rounded-xl h-[400px] flex flex-col items-center justify-center text-slate-500 font-mono">
+                      <BookOpen className="w-10 h-10 text-slate-600 mb-3" />
+                      <span>Select a document to display the content.</span>
+                    </div>
+                  )}
                 </div>
-              ) : (
-                <div className="bg-slate-900 border border-slate-850 rounded-xl h-[400px] flex flex-col items-center justify-center text-slate-500 font-mono">
-                  <BookOpen className="w-10 h-10 text-slate-600 mb-3" />
-                  <span>Select a document to display the content.</span>
-                </div>
-              )}
-            </div>
+              </div>
+            )}
           </div>
         )}
 
