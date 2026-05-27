@@ -493,6 +493,8 @@ async def update_task_prompt(
 
     if "prompt" in payload:
         task.prompt = payload["prompt"]
+        from app.services.prompt_validator import PromptValidator
+        task.validation_results = PromptValidator.validate_prompt(payload["prompt"])
 
     await db.commit()
     await db.refresh(task)
@@ -528,6 +530,37 @@ async def approve_everything_and_build(
 
     asyncio.create_task(run_in_background())
     return {"message": "All documents approved, starting build", "status": "building"}
+
+@router.post("/projects/{id}/validate-prompts")
+async def validate_project_prompts(
+    id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    stmt = select(Project).where(Project.id == id, Project.user_id == current_user.id)
+    res = await db.execute(stmt)
+    project = res.scalars().first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    stmt_tasks = (
+        select(SprintTask)
+        .join(Sprint, SprintTask.sprint_id == Sprint.id)
+        .where(Sprint.project_id == id)
+    )
+    res_tasks = await db.execute(stmt_tasks)
+    tasks = res_tasks.scalars().all()
+
+    # Convert to list of dicts for PromptValidator
+    task_dicts = []
+    for t in tasks:
+        task_dicts.append({
+            "name": t.name,
+            "prompt": t.prompt
+        })
+
+    from app.services.prompt_validator import PromptValidator
+    return PromptValidator.validate_all_prompts(task_dicts)
 
 
 

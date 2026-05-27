@@ -44,6 +44,7 @@ class SprintTaskResponse(BaseModel):
     tests_passed: int = 0
     tests_failed: int = 0
     retry_count: int = 0
+    validation_results: dict | None = None
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)

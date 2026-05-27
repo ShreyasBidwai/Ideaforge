@@ -171,6 +171,9 @@ class SprintGenerationService:
             await self.db.flush()
 
             for task_data in sprint_data.get("tasks", []):
+                from app.services.prompt_validator import PromptValidator
+                val_res = PromptValidator.validate_prompt(task_data["prompt"])
+                
                 task = SprintTask(
                     sprint_id=sprint.id,
                     task_number=task_data["task_number"],
@@ -181,7 +184,8 @@ class SprintGenerationService:
                     test_count=task_data.get("expected_test_count") or 0,
                     tests_passed=0,
                     tests_failed=0,
-                    retry_count=0
+                    retry_count=0,
+                    validation_results=val_res
                 )
                 self.db.add(task)
             
@@ -343,6 +347,9 @@ class SprintGenerationService:
 
             for task_data in sprint_data.get("tasks", []):
                 task_count += 1
+                from app.services.prompt_validator import PromptValidator
+                val_res = PromptValidator.validate_prompt(task_data["prompt"])
+                
                 task = SprintTask(
                     sprint_id=sprint.id,
                     task_number=task_data["task_number"],
@@ -353,7 +360,8 @@ class SprintGenerationService:
                     test_count=task_data.get("expected_test_count") or 0,
                     tests_passed=0,
                     tests_failed=0,
-                    retry_count=0
+                    retry_count=0,
+                    validation_results=val_res
                 )
                 self.db.add(task)
 
