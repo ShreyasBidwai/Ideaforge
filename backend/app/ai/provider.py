@@ -125,14 +125,55 @@ class GeminiProvider(AIProvider):
                     raise ValueError(
                         "Gemini response has no text content (possibly blocked or empty)."
                     )
+                
+                if response_schema is not None:
+                    try:
+                        import json
+                        import re
+                        cleaned = response.text.strip()
+                        cleaned = re.sub(r'^```(?:json)?\s*\n?', '', cleaned)
+                        cleaned = re.sub(r'\n?```\s*$', '', cleaned)
+                        cleaned = cleaned.strip()
+                        
+                        def escape_raw_control_chars(s: str) -> str:
+                            result = []
+                            in_string = False
+                            escaped = False
+                            for char in s:
+                                if char == '"' and not escaped:
+                                    in_string = not in_string
+                                    result.append(char)
+                                elif char == '\\' and in_string:
+                                    escaped = not escaped
+                                    result.append(char)
+                                else:
+                                    if in_string:
+                                        if char == '\n':
+                                            result.append('\\n')
+                                        elif char == '\r':
+                                            result.append('\\r')
+                                        elif char == '\t':
+                                            result.append('\\t')
+                                        else:
+                                            result.append(char)
+                                    else:
+                                        result.append(char)
+                                    escaped = False
+                            return "".join(result)
+                        
+                        json.loads(escape_raw_control_chars(cleaned))
+                    except Exception as json_err:
+                        raise ValueError(f"Model returned invalid/truncated JSON: {json_err}")
+
                 return response.text
 
             except Exception as e:
                 err_msg = str(e).lower()
                 is_quota_error = "quota" in err_msg or "429" in err_msg or "resourceexhausted" in err_msg
+                is_invalid_json = "invalid/truncated json" in err_msg
 
-                if is_quota_error:
-                    logger.warning(f"Model {current_model} quota exceeded, rotating to next model")
+                if is_quota_error or is_invalid_json:
+                    logger.warning(f"Model {current_model} failed (quota or malformed JSON: {str(e)}), rotating to next model")
                     model_rotator.mark_exhausted(current_model)
                     # Retry immediately with the next model
                     continue

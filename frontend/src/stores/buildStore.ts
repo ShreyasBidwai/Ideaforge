@@ -25,6 +25,8 @@ interface BuildState {
   disconnectLogStream: () => void;
   generateDocsStream: (projectId: string) => Promise<void>;
   generateSprintsStream: (projectId: string) => Promise<void>;
+  cancelDocGeneration: (projectId: string) => Promise<void>;
+  cancelSprintGeneration: (projectId: string) => Promise<void>;
   retryFailed: (projectId: string) => Promise<void>;
   fetchFailureDetails: (projectId: string) => Promise<void>;
   fetchQueuePosition: (projectId: string) => Promise<void>;
@@ -372,6 +374,26 @@ export const useBuildStore = create<BuildState>((set, get) => ({
     } catch (error) {
       console.error("Error fetching queue position:", error);
       set({ queuePosition: null });
+    }
+  },
+
+  cancelDocGeneration: async (projectId) => {
+    try {
+      await apiClient.post(`/api/v1/projects/${projectId}/generate-docs/cancel`);
+      set({ docGenerationProgress: null });
+      await get().fetchBuildStatus(projectId);
+    } catch (error) {
+      console.error("Error cancelling document generation:", error);
+    }
+  },
+
+  cancelSprintGeneration: async (projectId) => {
+    try {
+      await apiClient.post(`/api/v1/projects/${projectId}/generate-sprints/cancel`);
+      set({ sprintGenerationProgress: null });
+      await get().fetchBuildStatus(projectId);
+    } catch (error) {
+      console.error("Error cancelling sprint generation:", error);
     }
   }
 }));

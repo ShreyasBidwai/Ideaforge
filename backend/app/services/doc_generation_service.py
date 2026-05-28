@@ -23,6 +23,18 @@ from app.ai.prompts.docs.engineering import build_engineering_prompt
 logger = logging.getLogger(__name__)
 
 class DocGenerationService:
+    active_tasks = {}
+
+    @classmethod
+    def cancel_generation(cls, project_id: str) -> bool:
+        import asyncio
+        task = cls.active_tasks.get(project_id)
+        if task:
+            logger.info(f"Cancelling active document generation task for project {project_id}")
+            task.cancel()
+            return True
+        return False
+
     def __init__(self, ai_provider: AIProvider, db: AsyncSession):
         self.ai = ai_provider
         self.db = db
@@ -92,6 +104,7 @@ class DocGenerationService:
         4. Save each as Document record
         5. Return list of created documents
         """
+        import asyncio
         stmt = (
             select(Project)
             .where(Project.id == project_id, Project.user_id == user_id)
@@ -105,29 +118,45 @@ class DocGenerationService:
         if not project:
             raise HTTPException(status_code=404, detail="Project not found.")
 
-        # Update status to doc_generation if not already
-        project.status = "doc_generation"
-        await self.db.commit()
+        current_task = asyncio.current_task()
+        DocGenerationService.active_tasks[str(project_id)] = current_task
 
-        context = await self._build_context(project)
-        
-        doc_types = ["architecture", "prd", "trd", "sprint_plan", "engineering_standards"]
-        generated_docs = []
+        try:
+            # Update status to doc_generation if not already
+            project.status = "doc_generation"
+            await self.db.commit()
 
-        for doc_type in doc_types:
+            context = await self._build_context(project)
+            
+            doc_types = ["architecture", "prd", "trd", "sprint_plan", "engineering_standards"]
+            generated_docs = []
+
+            for doc_type in doc_types:
+                try:
+                    doc = await self._generate_single_doc_internal(project, doc_type, context)
+                    generated_docs.append(doc)
+                except Exception as e:
+                    project.status = "doc_generation_failed"
+                    await self.db.commit()
+                    raise HTTPException(status_code=500, detail=f"Failed to generate {doc_type} document: {str(e)}")
+
+            project.status = "doc_review"
+            await self.db.commit()
+            return generated_docs
+        except asyncio.CancelledError:
+            logger.info(f"Document generation cancelled for project {project_id}")
             try:
-                doc = await self._generate_single_doc_internal(project, doc_type, context)
-                generated_docs.append(doc)
-            except Exception as e:
+                # Update status in db if possible
                 project.status = "doc_generation_failed"
                 await self.db.commit()
-                raise HTTPException(status_code=500, detail=f"Failed to generate {doc_type} document: {str(e)}")
-
-        project.status = "doc_review"
-        await self.db.commit()
-        return generated_docs
+            except Exception as ex:
+                logger.error(f"Error resetting project status: {ex}")
+            raise
+        finally:
+            DocGenerationService.active_tasks.pop(str(project_id), None)
 
     async def generate_all_docs_stream(self, project_id: UUID, user_id: UUID):
+        import asyncio
         stmt = (
             select(Project)
             .where(Project.id == project_id, Project.user_id == user_id)
@@ -141,38 +170,53 @@ class DocGenerationService:
         if not project:
             raise HTTPException(status_code=404, detail="Project not found.")
 
-        # Update status to doc_generation if not already
-        project.status = "doc_generation"
-        await self.db.commit()
+        current_task = asyncio.current_task()
+        DocGenerationService.active_tasks[str(project_id)] = current_task
 
-        yield {"status": "starting", "message": "Preparing project context..."}
+        try:
+            # Update status to doc_generation if not already
+            project.status = "doc_generation"
+            await self.db.commit()
 
-        context = await self._build_context(project)
-        
-        doc_types = ["architecture", "prd", "trd", "sprint_plan", "engineering_standards"]
+            yield {"status": "starting", "message": "Preparing project context..."}
 
-        for doc_type in doc_types:
-            display_name = doc_type.replace("_", " ").title()
-            if doc_type == "prd":
-                display_name = "PRD"
-            elif doc_type == "trd":
-                display_name = "TRD"
-                
-            yield {"status": "generating", "doc_type": doc_type, "message": f"Generating {display_name}..."}
+            context = await self._build_context(project)
             
+            doc_types = ["architecture", "prd", "trd", "sprint_plan", "engineering_standards"]
+
+            for doc_type in doc_types:
+                display_name = doc_type.replace("_", " ").title()
+                if doc_type == "prd":
+                    display_name = "PRD"
+                elif doc_type == "trd":
+                    display_name = "TRD"
+                    
+                yield {"status": "generating", "doc_type": doc_type, "message": f"Generating {display_name}..."}
+                
+                try:
+                    await self._generate_single_doc_internal(project, doc_type, context)
+                except Exception as e:
+                    project.status = "doc_generation_failed"
+                    await self.db.commit()
+                    raise e
+                
+                yield {"status": "generated", "doc_type": doc_type, "message": f"{display_name} complete"}
+
+            project.status = "doc_review"
+            await self.db.commit()
+
+            yield {"status": "complete", "message": "All 5 documents generated", "doc_count": 5}
+        except asyncio.CancelledError:
+            logger.info(f"Document generation stream cancelled for project {project_id}")
             try:
-                await self._generate_single_doc_internal(project, doc_type, context)
-            except Exception as e:
+                # Update status in db if possible
                 project.status = "doc_generation_failed"
                 await self.db.commit()
-                raise e
-            
-            yield {"status": "generated", "doc_type": doc_type, "message": f"{display_name} complete"}
-
-        project.status = "doc_review"
-        await self.db.commit()
-
-        yield {"status": "complete", "message": "All 5 documents generated", "doc_count": 5}
+            except Exception as ex:
+                logger.error(f"Error resetting project status in stream: {ex}")
+            raise
+        finally:
+            DocGenerationService.active_tasks.pop(str(project_id), None)
 
     async def _generate_single_doc_internal(self, project: Project, doc_type: str, context: dict) -> Document:
         # Check if document already exists

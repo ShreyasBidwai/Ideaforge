@@ -131,9 +131,9 @@ class ClaudeOutputParser:
             errors += 1
             
         # Check for pytest summary line
-        pytest_summary_match = re.search(r'={5,}.*={5,}', output)
-        if pytest_summary_match:
-            raw_summary = pytest_summary_match.group(0)
+        pytest_summary_matches = re.findall(r'={5,}.*={5,}', output)
+        if pytest_summary_matches:
+            raw_summary = pytest_summary_matches[-1]
             if "no tests ran" in raw_summary:
                 pass
             else:
@@ -181,6 +181,7 @@ class ClaudeStatus:
 
 class ClaudeService:
     """Wrapper around the Claude Code CLI"""
+    active_processes = {}
     
     @staticmethod
     def _find_claude_binary() -> str | None:
@@ -267,7 +268,48 @@ class ClaudeService:
             )
     
     @staticmethod
-    def run_prompt(prompt: str, cwd: str, timeout: int = 600, tools: str = "Read,Write,Edit,Bash", check_success: bool = True) -> dict:
+    def terminate_process(project_id: str) -> bool:
+        p = ClaudeService.active_processes.get(project_id)
+        if p:
+            logger.info(f"[CLAUDE DEBUG] Terminating active process for project {project_id}")
+            try:
+                p.terminate()
+                p.kill()
+                return True
+            except Exception as e:
+                logger.error(f"[CLAUDE DEBUG] Error terminating process: {e}")
+        return False
+
+    @staticmethod
+    def _execute_subprocess(cmd: list[str], prompt: str, cwd: str, env: dict, timeout: int, project_id: str | None = None) -> tuple[int, str, str]:
+        p = subprocess.Popen(
+            cmd,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            cwd=cwd,
+            env=env
+        )
+        if project_id:
+            ClaudeService.active_processes[project_id] = p
+            logger.info(f"[CLAUDE DEBUG] Registered active process for project {project_id}")
+        
+        try:
+            stdout_str, stderr_str = p.communicate(input=prompt, timeout=timeout)
+            return p.returncode, stdout_str or "", stderr_str or ""
+        except subprocess.TimeoutExpired:
+            logger.warning(f"[CLAUDE DEBUG] Subprocess timed out after {timeout}s, killing it...")
+            p.kill()
+            stdout_str, stderr_str = p.communicate()
+            raise subprocess.TimeoutExpired(cmd, timeout, output=stdout_str, stderr=stderr_str)
+        finally:
+            if project_id:
+                ClaudeService.active_processes.pop(project_id, None)
+                logger.info(f"[CLAUDE DEBUG] Unregistered active process for project {project_id}")
+
+    @staticmethod
+    def run_prompt(prompt: str, cwd: str, timeout: int = 600, tools: str = "Read,Write,Edit,Bash", check_success: bool = True, project_id: str | None = None) -> dict:
         """Execute a prompt via claude -p with full debug logging and tool fallback"""
         
         # Step 1: Find claude binary
@@ -321,18 +363,12 @@ class ClaudeService:
         logger.info(f"[CLAUDE DEBUG] Starting subprocess at {time.strftime('%H:%M:%S')}...")
         
         try:
-            result = subprocess.run(
-                cmd,
-                input=prompt,
-                capture_output=True,
-                text=True,
-                cwd=cwd,
-                timeout=timeout,
-                env=env
+            returncode, stdout_str, stderr_str = ClaudeService._execute_subprocess(
+                cmd, prompt, cwd, env, timeout, project_id
             )
             
             # Step 5: Handle retry without tools if that failed
-            if result.returncode != 0 and any(flag in (result.stderr or "") or flag in (result.stdout or "") for flag in ["allowedTools", "tools"]):
+            if returncode != 0 and any(flag in stderr_str or flag in stdout_str for flag in ["allowedTools", "tools"]):
                 logger.info("[CLAUDE DEBUG] Retrying without tools flags")
                 cmd = [
                     claude_path, 
@@ -341,24 +377,15 @@ class ClaudeService:
                     "--output-format", 
                     "text"
                 ]
-                result = subprocess.run(
-                    cmd,
-                    input=prompt,
-                    capture_output=True,
-                    text=True,
-                    cwd=cwd,
-                    timeout=timeout,
-                    env=env
+                returncode, stdout_str, stderr_str = ClaudeService._execute_subprocess(
+                    cmd, prompt, cwd, env, timeout, project_id
                 )
             
             duration = time.time() - start_time
             logger.info(f"[CLAUDE DEBUG] Subprocess completed in {duration:.1f}s")
-            logger.info(f"[CLAUDE DEBUG] Exit code: {result.returncode}")
-            logger.info(f"[CLAUDE DEBUG] Stdout length: {len(result.stdout or '')} chars")
-            logger.info(f"[CLAUDE DEBUG] Stderr length: {len(result.stderr or '')} chars")
-            
-            stdout_str = result.stdout or ""
-            stderr_str = result.stderr or ""
+            logger.info(f"[CLAUDE DEBUG] Exit code: {returncode}")
+            logger.info(f"[CLAUDE DEBUG] Stdout length: {len(stdout_str)} chars")
+            logger.info(f"[CLAUDE DEBUG] Stderr length: {len(stderr_str)} chars")
             
             if stdout_str:
                 logger.info(f"[CLAUDE DEBUG] Stdout preview: {stdout_str[:500]}")
@@ -374,12 +401,12 @@ class ClaudeService:
             if is_limited:
                 logger.warning(f"[CLAUDE DEBUG] Rate limited! Reset at: {reset_at}")
             
-            success = result.returncode == 0
+            success = returncode == 0
             if check_success:
                 success = success and ClaudeOutputParser.detect_success(cleaned_output)
             error = None
             if not success and not is_limited:
-                error = stderr_str or cleaned_output or f"Process exited with code {result.returncode}"
+                error = stderr_str or cleaned_output or f"Process exited with code {returncode}"
             
             ret = {
                 "success": success and not is_limited,
@@ -387,16 +414,21 @@ class ClaudeService:
                 "error": error,
                 "is_rate_limited": is_limited,
                 "rate_limit_reset": reset_at,
-                "exit_code": result.returncode,
+                "exit_code": returncode,
                 "duration_seconds": duration
             }
             
-        except subprocess.TimeoutExpired:
+        except subprocess.TimeoutExpired as e:
             duration = time.time() - start_time
             logger.error(f"[CLAUDE DEBUG] Subprocess TIMED OUT after {duration:.1f}s")
+            stdout_str = e.output or ""
+            stderr_str = e.stderr or ""
+            combined_output = stdout_str + "\n" + stderr_str
+            cleaned_output = ClaudeOutputParser.clean_output(combined_output)
+            
             ret = {
                 "success": False,
-                "output": "",
+                "output": cleaned_output,
                 "error": f"Claude Code timed out after {timeout} seconds",
                 "is_rate_limited": False,
                 "rate_limit_reset": None,

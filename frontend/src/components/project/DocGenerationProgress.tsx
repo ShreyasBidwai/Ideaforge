@@ -4,11 +4,13 @@ import { FileText, CheckCircle2, Loader2, Circle } from "lucide-react";
 interface DocGenerationProgressProps {
   completedDocs: string[];
   currentDoc: string | null;
+  onCancel?: () => void;
 }
 
 export const DocGenerationProgress: React.FC<DocGenerationProgressProps> = ({
   completedDocs = [],
   currentDoc = null,
+  onCancel,
 }) => {
   const docTypes = [
     { key: "architecture", name: "Architecture Document" },
@@ -34,11 +36,21 @@ export const DocGenerationProgress: React.FC<DocGenerationProgressProps> = ({
             Gemini AI is crafting your detailed software blueprints
           </p>
         </div>
-        <div className="flex items-center gap-2 bg-blue-500/10 border border-blue-500/20 px-3 py-1 rounded-full text-xs font-semibold text-blue-400">
-          <span>{completedCount}</span>
-          <span className="text-blue-500">/</span>
-          <span>{totalDocs}</span>
-          <span className="text-slate-500 ml-1">({progressPercent}%)</span>
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 bg-blue-500/10 border border-blue-500/20 px-3 py-1 rounded-full text-xs font-semibold text-blue-400">
+            <span>{completedCount}</span>
+            <span className="text-blue-500">/</span>
+            <span>{totalDocs}</span>
+            <span className="text-slate-500 ml-1">({progressPercent}%)</span>
+          </div>
+          {onCancel && (
+            <button
+              onClick={onCancel}
+              className="flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-rose-500/10 border border-rose-500/25 text-rose-400 hover:bg-rose-500/20 active:bg-rose-500/30 transition-all cursor-pointer"
+            >
+              <span>Terminate</span>
+            </button>
+          )}
         </div>
       </div>
 

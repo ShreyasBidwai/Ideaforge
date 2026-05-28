@@ -33,25 +33,60 @@ MOCK_SPRINTS = {
     "total_tasks": 3, "total_sprints": 2, "estimated_total_tests": 12
 }
 
-# TEST 1: Generate sprints creates sprint records (mock ClaudeService)
-@patch('app.services.claude_service.ClaudeService.run_prompt')
-async def test_generate_sprints(mock_claude, client, auth_headers, mock_gemini):
-    """POST /projects/{id}/generate-sprints should create sprints with tasks via Claude Code"""
-    mock_claude.return_value = {
-        "success": True,
-        "output": json.dumps(MOCK_SPRINTS),
-        "error": None,
-        "is_rate_limited": False,
-        "rate_limit_reset": None,
-        "exit_code": 0,
-        "duration_seconds": 45.2
-    }
+def make_gemini_side_effect(fail_sprints=False):
+    def gemini_side_effect(prompt, system_prompt, response_schema=None, *args, **kwargs):
+        if response_schema:
+            properties = response_schema.get("properties", {})
+            if "sprints" in properties:
+                if fail_sprints:
+                    raise RuntimeError("All free-tier Gemini models exhausted")
+                return json.dumps(MOCK_SPRINTS)
+            if "prompt" in properties:
+                import re
+                sprint_match = re.search(r"Current Sprint:\s*(\d+)", prompt)
+                task_match = re.search(r"Current Task Number:\s*(\d+)", prompt)
+                sprint_num = int(sprint_match.group(1)) if sprint_match else 1
+                task_num = int(task_match.group(1)) if task_match else 1
+                
+                target_sprint = next((s for s in MOCK_SPRINTS["sprints"] if s["sprint_number"] == sprint_num), None)
+                if target_sprint:
+                    target_task = next((t for t in target_sprint["tasks"] if t["task_number"] == task_num), None)
+                    if target_task:
+                        return json.dumps({
+                            "prompt": target_task["prompt"],
+                            "test_command": target_task["test_command"],
+                            "expected_test_count": target_task["expected_test_count"]
+                        })
+                return json.dumps({
+                    "prompt": "Default task instruction prompt detailing files and test command.",
+                    "test_command": "cd backend && python -m pytest tests/test_health.py -v",
+                    "expected_test_count": 2
+                })
+            if "pain_points" in properties:
+                return json.dumps({"pain_points": [
+                    {"name": "P", "description": "D", "severity": 5, "affected_stakeholders": ["U"], "evidence": "E"}
+                ]})
+            if "problem_statements" in properties:
+                return json.dumps({"problem_statements": [
+                    {"title": "Problem", "description": "D", "target_user": "U", "core_pain": "P", "market_context": "M",
+                     "severity": 4, "feasibility": 4, "market_size": 4, "uniqueness": 3}
+                ]})
+            if "solutions" in properties:
+                return json.dumps({"solutions": [
+                    {"title": "Approved Sol", "description": "D", "mechanism": "M", "tech_stack": ["React"],
+                     "target_user": "Users", "revenue_model": "SaaS $99/mo", "is_unconventional": False}
+                ]})
+        return "# Doc content"
+    return gemini_side_effect
+
+# TEST 1: Generate sprints creates sprint records (mock GeminiProvider)
+async def test_generate_sprints(client, auth_headers, mock_gemini):
+    """POST /projects/{id}/generate-sprints should create sprints with tasks via Gemini"""
+    mock_gemini.side_effect = make_gemini_side_effect()
     
     sol_id = await create_approved_solution(client, auth_headers, mock_gemini)
     project = await client.post(f"/api/v1/solutions/{sol_id}/create-project", headers=auth_headers)
     proj_id = project.json()["id"]
-    mock_gemini.return_value = "# Doc content"
-    await client.post(f"/api/v1/projects/{proj_id}/generate-docs", headers=auth_headers)
     
     response = await client.post(f"/api/v1/projects/{proj_id}/generate-sprints", headers=auth_headers)
     assert response.status_code == 200
@@ -60,18 +95,12 @@ async def test_generate_sprints(mock_claude, client, auth_headers, mock_gemini):
     assert len(sprints.json()) >= 2
 
 # TEST 2: Each task has a self-contained prompt
-@patch('app.services.claude_service.ClaudeService.run_prompt')
-async def test_tasks_have_detailed_prompts(mock_claude, client, auth_headers, mock_gemini):
-    mock_claude.return_value = {
-        "success": True, "output": json.dumps(MOCK_SPRINTS),
-        "error": None, "is_rate_limited": False, "rate_limit_reset": None,
-        "exit_code": 0, "duration_seconds": 30.0
-    }
+async def test_tasks_have_detailed_prompts(client, auth_headers, mock_gemini):
+    mock_gemini.side_effect = make_gemini_side_effect()
+    
     sol_id = await create_approved_solution(client, auth_headers, mock_gemini)
     project = await client.post(f"/api/v1/solutions/{sol_id}/create-project", headers=auth_headers)
     proj_id = project.json()["id"]
-    mock_gemini.return_value = "# Doc"
-    await client.post(f"/api/v1/projects/{proj_id}/generate-docs", headers=auth_headers)
     await client.post(f"/api/v1/projects/{proj_id}/generate-sprints", headers=auth_headers)
     
     sprints = await client.get(f"/api/v1/projects/{proj_id}/sprints", headers=auth_headers)
@@ -82,38 +111,25 @@ async def test_tasks_have_detailed_prompts(mock_claude, client, auth_headers, mo
             assert task["test_command"] is not None
 
 # TEST 3: Tasks ordered correctly
-@patch('app.services.claude_service.ClaudeService.run_prompt')
-async def test_tasks_ordered(mock_claude, client, auth_headers, mock_gemini):
-    mock_claude.return_value = {
-        "success": True, "output": json.dumps(MOCK_SPRINTS),
-        "error": None, "is_rate_limited": False, "rate_limit_reset": None,
-        "exit_code": 0, "duration_seconds": 30.0
-    }
+async def test_tasks_ordered(client, auth_headers, mock_gemini):
+    mock_gemini.side_effect = make_gemini_side_effect()
+    
     sol_id = await create_approved_solution(client, auth_headers, mock_gemini)
     project = await client.post(f"/api/v1/solutions/{sol_id}/create-project", headers=auth_headers)
     proj_id = project.json()["id"]
-    mock_gemini.return_value = "# Doc"
-    await client.post(f"/api/v1/projects/{proj_id}/generate-docs", headers=auth_headers)
     await client.post(f"/api/v1/projects/{proj_id}/generate-sprints", headers=auth_headers)
     
     sprints = await client.get(f"/api/v1/projects/{proj_id}/sprints", headers=auth_headers)
     sprint_numbers = [s["sprint_number"] for s in sprints.json()]
     assert sprint_numbers == sorted(sprint_numbers)
 
-# TEST 4: Handles Claude Code rate limit gracefully
-@patch('app.services.claude_service.ClaudeService.run_prompt')
-async def test_handles_rate_limit(mock_claude, client, auth_headers, mock_gemini):
-    mock_claude.return_value = {
-        "success": False, "output": "",
-        "error": "Rate limit exceeded",
-        "is_rate_limited": True, "rate_limit_reset": "2026-05-27T19:00:00",
-        "exit_code": 1, "duration_seconds": 2.0
-    }
+# TEST 4: Handles Gemini rate limit gracefully
+async def test_handles_rate_limit(client, auth_headers, mock_gemini):
+    mock_gemini.side_effect = make_gemini_side_effect(fail_sprints=True)
+    
     sol_id = await create_approved_solution(client, auth_headers, mock_gemini)
     project = await client.post(f"/api/v1/solutions/{sol_id}/create-project", headers=auth_headers)
     proj_id = project.json()["id"]
-    mock_gemini.return_value = "# Doc"
-    await client.post(f"/api/v1/projects/{proj_id}/generate-docs", headers=auth_headers)
     
     response = await client.post(f"/api/v1/projects/{proj_id}/generate-sprints", headers=auth_headers)
     assert response.status_code == 429
@@ -127,22 +143,21 @@ def test_parse_json_with_fences():
     assert "sprints" in result
 
 # TEST 6: First task is always project scaffold
-@patch('app.services.claude_service.ClaudeService.run_prompt')
-async def test_prompt_requests_scaffold_first(mock_claude, client, auth_headers, mock_gemini):
-    """The prompt sent to Claude Code should require Sprint 1 Task 1 to be a scaffold"""
-    mock_claude.return_value = {
-        "success": True, "output": json.dumps(MOCK_SPRINTS),
-        "error": None, "is_rate_limited": False, "rate_limit_reset": None,
-        "exit_code": 0, "duration_seconds": 30.0
-    }
+async def test_prompt_requests_scaffold_first(client, auth_headers, mock_gemini):
+    """The prompt sent to Gemini should require Sprint 1 Task 1 to be a scaffold"""
+    prompts_captured = []
+    def capturing_side_effect(prompt, system_prompt, response_schema=None, *args, **kwargs):
+        prompts_captured.append(prompt)
+        side_effect = make_gemini_side_effect()
+        return side_effect(prompt, system_prompt, response_schema, *args, **kwargs)
+    
+    mock_gemini.side_effect = capturing_side_effect
+    
     sol_id = await create_approved_solution(client, auth_headers, mock_gemini)
     project = await client.post(f"/api/v1/solutions/{sol_id}/create-project", headers=auth_headers)
     proj_id = project.json()["id"]
-    mock_gemini.return_value = "# Doc"
-    await client.post(f"/api/v1/projects/{proj_id}/generate-docs", headers=auth_headers)
     await client.post(f"/api/v1/projects/{proj_id}/generate-sprints", headers=auth_headers)
     
-    # Check that Claude was called with a prompt mentioning scaffold
-    call_args = mock_claude.call_args
-    prompt_sent = call_args[1].get("prompt", "") if call_args[1] else call_args[0][0]
-    assert "scaffold" in prompt_sent.lower() or "empty directory" in prompt_sent.lower() or "sprint 1, task 1" in prompt_sent.lower()
+    # Find the prompt that was sent to generate sprints
+    sprint_prompt = next((p for p in prompts_captured if "sprints" in p.lower() or "sprint" in p.lower()), "")
+    assert "scaffold" in sprint_prompt.lower() or "empty directory" in sprint_prompt.lower() or "sprint 1, task 1" in sprint_prompt.lower()

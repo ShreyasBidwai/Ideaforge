@@ -23,6 +23,7 @@ class BuildOrchestrator:
         self.db = db
         self._is_running = False
         self._should_stop = False
+        self.project_id = None
     
     async def start_build(self, project_id: UUID, user_id: UUID) -> None:
         """
@@ -33,6 +34,7 @@ class BuildOrchestrator:
         4. Find first pending/failed task (resume support)
         5. Start executing from that task
         """
+        self.project_id = project_id
         stmt = (
             select(Project)
             .where(Project.id == project_id, Project.user_id == user_id)
@@ -107,11 +109,10 @@ class BuildOrchestrator:
                             await orch.start_build(pid, user_id)
 
                     await CronService.schedule_resume(project.id, task.rate_limit_reset_at, resume_callback)
-                else:
-                    project.status = "failed"
-                    await self.db.commit()
-                    await self.log(project_id, "ERROR", "orchestrator", f"Task {task.name} failed. Stopping build.")
-                break
+                    break
+                # Task failed but we continue to the next task automatically
+                await self.log(project_id, "WARNING", "orchestrator", f"Task {task.name} failed. Continuing to next task...")
+                continue
         else:
             # Completed all tasks successfully
             project.status = "complete"
@@ -124,6 +125,7 @@ class BuildOrchestrator:
         """
         Execute a single task
         """
+        await self.db.refresh(task)
         return await self.execute_task_with_recovery(task, project_dir)
 
     async def execute_task_with_recovery(self, task: SprintTask, project_dir: str) -> bool:
@@ -150,6 +152,10 @@ class BuildOrchestrator:
 
         await self.log(project_id, "INFO", "orchestrator", f"Starting task {task.task_number}: {task.name}")
 
+        # Log the prompt being sent
+        prompt_preview = task.prompt[:500] + "..." if len(task.prompt) > 500 else task.prompt
+        await self.log(project_id, "PROMPT", f"task:{task.task_number}", prompt_preview)
+
         # Run Claude (Attempt 1)
         success, output, rate_limit_reset = await self.run_claude(task.prompt, project_dir)
         task.claude_output = output
@@ -170,14 +176,22 @@ class BuildOrchestrator:
             await self.handle_task_failure(task, project_id)
             return False
 
+        # Log Claude's output
+        output_preview = output[:800] + "..." if len(output) > 800 else output
+        await self.log(project_id, "CLAUDE", f"task:{task.task_number}", output_preview)
+
         # Run tests if test command is specified
         passed, failed, test_output = 0, 0, ""
         if task.test_command:
+            await self.log(project_id, "INFO", "orchestrator", f"Running tests: {task.test_command}")
             passed, failed, test_output = self.run_tests(task.test_command, project_dir)
             task.test_count = passed + failed
             task.tests_passed = passed
             task.tests_failed = failed
             task.error_output = test_output if failed > 0 else None
+            # Log test result summary
+            test_summary = "\n".join([l for l in test_output.split("\n") if any(x in l for x in ["passed", "failed", "error", "PASSED", "FAILED", "ERROR"])])[-600:]
+            await self.log(project_id, "TESTS", f"task:{task.task_number}", test_summary or test_output[-400:])
 
         if failed == 0:
             task.status = "passed"
@@ -290,20 +304,19 @@ Existing files that may be relevant: {files_str}"""
     async def handle_task_failure(self, task: SprintTask, project_id: UUID):
         """
         Called when a task fails all retry attempts.
+        Marks the task as failed but keeps the project in 'building' state
+        so the orchestrator loop can continue to the next task automatically.
         """
         task.status = "failed"
         task.completed_at = datetime.utcnow()
-        stmt = select(Project).where(Project.id == project_id)
-        res = await self.db.execute(stmt)
-        project = res.scalars().first()
-        if project:
-            project.status = "failed"
         await self.db.commit()
-        await self.log(project_id, "ERROR", "orchestrator", f"Task {task.name} failed after all recovery attempts.")
+        await self.log(project_id, "ERROR", "orchestrator", f"Task {task.name} failed after all recovery attempts. Continuing to next task...")
 
     async def resume_from_failure(self, project_id: UUID, user_id: UUID):
         """
-        Resume a failed build from the failed task.
+        Resume a failed build. Finds the first failed/retrying task and resets it,
+        then starts the build. If no failed task exists (e.g. all tasks are pending),
+        just starts the build from where it left off.
         """
         stmt = (
             select(Project)
@@ -317,21 +330,23 @@ Existing files that may be relevant: {files_str}"""
         if not project:
             raise HTTPException(status_code=404, detail="Project not found")
 
+        # Find and reset the first blocked task (failed or retrying)
         failed_task = None
-        for sprint in project.sprints:
-            for task in sprint.tasks:
-                if task.status == "failed":
+        for sprint in sorted(project.sprints, key=lambda s: s.sprint_number):
+            for task in sorted(sprint.tasks, key=lambda t: t.task_number):
+                if task.status in ("failed", "retrying"):
                     failed_task = task
                     break
             if failed_task:
                 break
 
-        if not failed_task:
-            raise HTTPException(status_code=400, detail="No failed task to retry")
+        if failed_task:
+            # Reset the blocked task so it can run again
+            failed_task.status = "pending"
+            failed_task.retry_count = 0
+            failed_task.error_output = None
 
-        failed_task.status = "pending"
-        failed_task.retry_count = 0
-        failed_task.error_output = None
+        # Always transition project back to building and kick off the pipeline
         project.status = "building"
         await self.db.commit()
 
@@ -351,15 +366,34 @@ Existing files that may be relevant: {files_str}"""
         import asyncio
         from app.services.claude_service import ClaudeService
         os.makedirs(project_dir, exist_ok=True)
-        result = await asyncio.to_thread(ClaudeService.run_prompt, prompt, cwd=project_dir)
+        project_id_str = str(self.project_id) if getattr(self, "project_id", None) else None
+        result = await asyncio.to_thread(
+            ClaudeService.run_prompt, 
+            prompt, 
+            cwd=project_dir, 
+            project_id=project_id_str
+        )
         return result["success"], result["output"], result["rate_limit_reset"]
 
     def run_tests(self, test_command: str, project_dir: str) -> tuple[int, int, str]:
         """
         Run test command as subprocess.
+        Auto-installs requirements.txt first if present to ensure all test
+        dependencies (e.g. pytest-mock) are available.
         """
         if not test_command:
             return 0, 0, ""
+
+        import os
+        req_file = os.path.join(project_dir, "requirements.txt")
+        if os.path.exists(req_file):
+            subprocess.run(
+                f"pip install -q -r {req_file}",
+                shell=True,
+                capture_output=True,
+                cwd=project_dir,
+                timeout=120
+            )
         
         try:
             result = subprocess.run(
@@ -453,20 +487,24 @@ Fix the code so all tests pass. Do not modify the test files — fix the source 
 
     async def pause_build(self, project_id: UUID, user_id: UUID):
         self._should_stop = True
+        from app.services.claude_service import ClaudeService
+        ClaudeService.terminate_process(str(project_id))
         stmt = select(Project).where(Project.id == project_id, Project.user_id == user_id)
         res = await self.db.execute(stmt)
         project = res.scalars().first()
         if project:
             project.status = "paused"
             await self.db.commit()
-            await self.log(project_id, "INFO", "orchestrator", "Pause request received. Pausing build process.")
+            await self.log(project_id, "INFO", "orchestrator", "Pause request received. Pausing build process and terminating running Claude process.")
 
     async def cancel_build(self, project_id: UUID, user_id: UUID):
         self._should_stop = True
+        from app.services.claude_service import ClaudeService
+        ClaudeService.terminate_process(str(project_id))
         stmt = select(Project).where(Project.id == project_id, Project.user_id == user_id)
         res = await self.db.execute(stmt)
         project = res.scalars().first()
         if project:
             project.status = "failed"
             await self.db.commit()
-            await self.log(project_id, "INFO", "orchestrator", "Cancel request received. Cancelling build process.")
+            await self.log(project_id, "INFO", "orchestrator", "Cancel request received. Cancelling build process and terminating running Claude process.")

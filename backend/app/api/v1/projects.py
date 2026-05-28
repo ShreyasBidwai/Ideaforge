@@ -141,6 +141,31 @@ async def generate_docs_stream(
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
 
+@router.post("/projects/{id}/generate-docs/cancel")
+async def cancel_generate_docs(
+    id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    stmt = select(Project).where(Project.id == id, Project.user_id == current_user.id)
+    res = await db.execute(stmt)
+    project = res.scalars().first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    cancelled = DocGenerationService.cancel_generation(str(id))
+    if cancelled:
+        project.status = "doc_generation_failed"
+        await db.commit()
+        return {"status": "success", "message": "Document generation cancelled successfully."}
+    
+    if project.status == "doc_generation":
+        project.status = "doc_generation_failed"
+        await db.commit()
+        return {"status": "success", "message": "Reset project status."}
+
+    return {"status": "ignored", "message": "No active document generation task to cancel."}
+
 @router.get("/projects/{id}/documents", response_model=list[DocumentResponse])
 async def list_project_documents(
     id: UUID,
@@ -178,18 +203,20 @@ async def get_project_document(
 async def generate_sprints(
     id: UUID,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    ai_provider: AIProvider = Depends(get_ai_provider)
 ):
-    service = SprintGenerationService(db)
+    service = SprintGenerationService(db, ai_provider)
     return await service.generate_sprints(id, current_user.id)
 
 @router.post("/projects/{id}/generate-sprints/stream")
 async def generate_sprints_stream(
     id: UUID,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    ai_provider: AIProvider = Depends(get_ai_provider)
 ):
-    service = SprintGenerationService(db)
+    service = SprintGenerationService(db, ai_provider)
     
     # Verify project exists and belongs to user
     stmt = select(Project).where(Project.id == id, Project.user_id == current_user.id)
@@ -211,6 +238,30 @@ async def generate_sprints_stream(
             yield format_sse_event("error", {"status": "error", "message": str(e)})
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
+
+@router.post("/projects/{id}/generate-sprints/cancel")
+async def cancel_generate_sprints(
+    id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    stmt = select(Project).where(Project.id == id, Project.user_id == current_user.id)
+    res = await db.execute(stmt)
+    project = res.scalars().first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    cancelled = SprintGenerationService.cancel_generation(str(id))
+    if cancelled:
+        project.status = "doc_review"
+        await db.commit()
+        return {"status": "success", "message": "Sprint generation cancelled successfully."}
+
+    if project.status == "doc_review" or project.status == "building":
+        from app.services.claude_service import ClaudeService
+        ClaudeService.terminate_process(str(id))
+
+    return {"status": "ignored", "message": "No active sprint generation task to cancel."}
 
 @router.get("/projects/{id}/sprints", response_model=list[SprintResponse])
 async def list_project_sprints(

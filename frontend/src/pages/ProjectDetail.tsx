@@ -48,12 +48,15 @@ export default function ProjectDetail() {
     stats,
     fetchBuildStatus,
     startBuild,
+    retryFailed,
     connectLogStream,
     disconnectLogStream,
     docGenerationProgress,
     sprintGenerationProgress,
     generateDocsStream,
-    generateSprintsStream
+    generateSprintsStream,
+    cancelDocGeneration,
+    cancelSprintGeneration
   } = useBuildStore();
 
   useEffect(() => {
@@ -287,12 +290,18 @@ export default function ProjectDetail() {
           {((project.status === "paused" || project.status === "building") || 
             (project.status === "failed" && sprints && sprints.length > 0)) && projectId && (
             <button
-              onClick={() => startBuild(projectId)}
+              onClick={() => {
+                if (project.status === "failed") {
+                  retryFailed(projectId);
+                } else {
+                  startBuild(projectId);
+                }
+              }}
               disabled={project.status === "building"}
               className="flex items-center space-x-2 px-5 py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-sm font-semibold transition-all border border-blue-500/20 shadow disabled:opacity-50 disabled:cursor-not-allowed font-mono"
             >
               <Play className="w-4 h-4" />
-              <span>{project.status === "paused" ? "RESUME BUILD" : "START PIPELINE"}</span>
+              <span>{project.status === "paused" || project.status === "failed" ? "RESUME BUILD" : "START PIPELINE"}</span>
             </button>
           )}
         </div>
@@ -433,6 +442,7 @@ export default function ProjectDetail() {
               <DocGenerationProgress
                 completedDocs={docGenerationProgress?.completedDocs || []}
                 currentDoc={docGenerationProgress?.currentDoc || null}
+                onCancel={() => projectId && cancelDocGeneration(projectId)}
               />
             ) : project.status === "doc_review" ? (
               <div className="space-y-6">
@@ -469,6 +479,12 @@ export default function ProjectDetail() {
                           {sprintGenerationProgress.status === "analyzing" ? "Analyzing Documentation" : "Regenerating Tasks"}
                         </h4>
                         <p className="text-sm text-slate-400">{sprintGenerationProgress.message}</p>
+                        <button
+                          onClick={() => projectId && cancelSprintGeneration(projectId)}
+                          className="px-4 py-1.5 rounded-full text-xs font-semibold bg-rose-500/10 border border-rose-500/25 text-rose-400 hover:bg-rose-500/20 active:bg-rose-500/30 transition-all cursor-pointer font-mono uppercase"
+                        >
+                          Terminate
+                        </button>
                       </div>
                     ) : (
                       <>
@@ -501,6 +517,12 @@ export default function ProjectDetail() {
                           {sprintGenerationProgress.status === "analyzing" ? "Analyzing Documentation" : "Generating Tasks"}
                         </h4>
                         <p className="text-sm text-slate-400">{sprintGenerationProgress.message}</p>
+                        <button
+                          onClick={() => projectId && cancelSprintGeneration(projectId)}
+                          className="px-4 py-1.5 rounded-full text-xs font-semibold bg-rose-500/10 border border-rose-500/25 text-rose-400 hover:bg-rose-500/20 active:bg-rose-500/30 transition-all cursor-pointer font-mono uppercase mt-2"
+                        >
+                          Terminate
+                        </button>
                       </div>
                     ) : (
                       <div className="text-center space-y-4">
@@ -659,6 +681,12 @@ export default function ProjectDetail() {
                   {sprintGenerationProgress.status === "analyzing" ? "Analyzing Documentation" : "Generating Tasks"}
                 </h4>
                 <p className="text-sm text-slate-400">{sprintGenerationProgress.message}</p>
+                <button
+                  onClick={() => projectId && cancelSprintGeneration(projectId)}
+                  className="px-4 py-1.5 rounded-full text-xs font-semibold bg-rose-500/10 border border-rose-500/25 text-rose-400 hover:bg-rose-500/20 active:bg-rose-500/30 transition-all cursor-pointer font-mono uppercase"
+                >
+                  Terminate
+                </button>
               </div>
             )}
 
