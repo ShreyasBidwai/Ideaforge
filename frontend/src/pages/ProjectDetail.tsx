@@ -26,8 +26,12 @@ import DocumentEditor from "../components/project/DocumentEditor";
 import SprintReview from "../components/project/SprintReview";
 import DocGenerationProgress from "../components/project/DocGenerationProgress";
 import FileBrowser from "../components/project/FileBrowser";
+import { useRunStore } from "../stores/runStore";
+import SetupGate from "../components/run/SetupGate";
+import RunPanel from "../components/run/RunPanel";
+import RunLogs from "../components/run/RunLogs";
 
-type Tab = "overview" | "documents" | "build" | "setup" | "code";
+type Tab = "overview" | "documents" | "build" | "setup" | "code" | "run";
 
 export default function ProjectDetail() {
   const { projectId } = useParams<{ projectId: string }>();
@@ -58,6 +62,13 @@ export default function ProjectDetail() {
     cancelDocGeneration,
     cancelSprintGeneration
   } = useBuildStore();
+
+  const runStore = useRunStore();
+
+  useEffect(() => {
+    if (!projectId) return;
+    runStore.fetchManifest(projectId);
+  }, [projectId, runStore.fetchManifest]);
 
   useEffect(() => {
     if (!projectId) return;
@@ -348,6 +359,16 @@ export default function ProjectDetail() {
           }`}
         >
           Code
+        </button>
+        <button
+          onClick={() => setActiveTab("run")}
+          className={`px-4 py-2 text-sm font-semibold font-mono border-b-2 transition-all ${
+            activeTab === "run"
+              ? "border-blue-500 text-blue-400"
+              : "border-transparent text-slate-400 hover:text-slate-200"
+          }`}
+        >
+          Run
         </button>
         {project.status === "complete" && (
           <button
@@ -747,6 +768,40 @@ export default function ProjectDetail() {
           <div className="max-w-4xl mx-auto bg-slate-900 border border-slate-800 rounded-xl p-6">
             <h3 className="text-base font-bold text-slate-200 font-mono mb-4">Post-Build Setup Guide</h3>
             <SetupChecklist steps={setupSteps} envTemplate={envTemplate} />
+          </div>
+        )}
+
+        {activeTab === "run" && (
+          <div className="space-y-6">
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              <div className="lg:col-span-2">
+                <SetupGate
+                  steps={runStore.setupSteps}
+                  onReady={() => {}}
+                  onSave={(stepId, val) => projectId && runStore.saveEnvValue(projectId, stepId, val)}
+                  onMark={(stepId, completed) => projectId && runStore.markStep(projectId, stepId, completed)}
+                />
+              </div>
+              <div>
+                <RunPanel
+                  ready={runStore.ready}
+                  installed={runStore.installStatus === "installed"}
+                  status={runStore.runStatus}
+                  backendUrl={runStore.backendUrl}
+                  frontendUrl={runStore.frontendUrl}
+                  onInstall={() => projectId && runStore.install(projectId)}
+                  onStart={() => projectId && runStore.start(projectId)}
+                  onStop={() => projectId && runStore.stop(projectId)}
+                />
+              </div>
+            </div>
+            {projectId && (
+              <RunLogs
+                projectId={projectId}
+                backendLogs={runStore.backendLogs}
+                frontendLogs={runStore.frontendLogs}
+              />
+            )}
           </div>
         )}
       </div>
