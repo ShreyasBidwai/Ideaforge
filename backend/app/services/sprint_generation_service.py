@@ -1,6 +1,7 @@
 import json
 import logging
 import re
+import asyncio
 from uuid import UUID
 from sqlalchemy.future import select
 from sqlalchemy.orm import selectinload
@@ -15,154 +16,32 @@ from app.models.solution import Solution
 from app.models.problem_statement import ProblemStatement
 from app.models.session import Session
 from app.core.maturity import get_maturity_config, MaturityLevel
-from app.ai.provider import AIProvider
-from app.ai.prompts.docs.sprint_prompts import build_sprint_prompts_prompt
+from app.services.claude_service import ClaudeService
+from app.ai.prompts.docs.sprint_prompts import build_sprint_prompts_prompt, build_sprint_prompts_disk_prompt
+from app.services.project_dir_service import ProjectDirService
+import os
 
 logger = logging.getLogger(__name__)
 
 
-def escape_inner_quotes(json_str: str) -> str:
-    keys_to_escape = {"name", "description", "prompt", "test_command"}
-    
-    result = []
-    i = 0
-    n = len(json_str)
-    
-    while i < n:
-        # Check if we are at a key start
-        match_key = None
-        for key in keys_to_escape:
-            key_pattern = rf'"{key}"\s*:\s*"'
-            m = re.match(key_pattern, json_str[i:])
-            if m:
-                match_key = key
-                match_len = m.end()
-                break
-        
-        if match_key:
-            # We found the start of a string value, e.g. "prompt": "
-            result.append(json_str[i:i+match_len])
-            i += match_len
-            
-            # Now we find the end of the string value.
-            val_start = i
-            val_end = -1
-            j = i
-            while j < n:
-                if json_str[j] == '"':
-                    # Is this quote followed by a comma or closing brace or bracket (with optional whitespace)?
-                    suffix = json_str[j+1:]
-                    if re.match(r'^\s*(?:,|}|\])', suffix):
-                        # Verify it's not escaped
-                        escaped = False
-                        k = j - 1
-                        while k >= val_start and json_str[k] == '\\':
-                            escaped = not escaped
-                            k -= 1
-                        if not escaped:
-                            val_end = j
-                            break
-                j += 1
-            
-            if val_end != -1:
-                val_content = json_str[val_start:val_end]
-                # Escape any double quotes in val_content that are not already escaped.
-                escaped_val = []
-                escaped = False
-                for char in val_content:
-                    if char == '\\':
-                        escaped = not escaped
-                        escaped_val.append(char)
-                    elif char == '"':
-                        if not escaped:
-                            escaped_val.append('\\"')
-                        else:
-                            escaped_val.append(char)
-                        escaped = False
-                    else:
-                        escaped_val.append(char)
-                        escaped = False
-                
-                result.append("".join(escaped_val))
-                result.append('"')
-                i = val_end + 1
-            else:
-                result.append(json_str[i])
-                i += 1
-        else:
-            result.append(json_str[i])
-            i += 1
-            
-    return "".join(result)
-
-
-def clean_json_response(text: str) -> str:
-    if not text:
-        return ""
-    text = text.strip()
-    
-    # Remove markdown code blocks if present
-    if text.startswith("```"):
-        match = re.match(r"^```(?:json)?\s*(.*?)\s*```$", text, re.DOTALL | re.IGNORECASE)
-        if match:
-            text = match.group(1).strip()
-            
-    # If there is still leading/trailing text, find first { and last }
-    first_brace = text.find("{")
-    last_brace = text.rfind("}")
-    if first_brace != -1 and last_brace != -1 and last_brace > first_brace:
-        text = text[first_brace:last_brace + 1]
-
-    # Escape unescaped double quotes inside key string values
-    text = escape_inner_quotes(text)
-
-    # Escape unescaped newlines, carriage returns, and tabs that are inside double-quoted string values.
-    # LLMs frequently output raw newlines inside JSON string attributes, which is invalid JSON.
-    escaped_chars = []
-    in_string = False
-    escaped = False
-    for char in text:
-        if char == '"' and not escaped:
-            in_string = not in_string
-            escaped_chars.append(char)
-        elif char == '\\' and in_string:
-            escaped = not escaped
-            escaped_chars.append(char)
-        else:
-            if in_string and char == '\n':
-                escaped_chars.append('\\n')
-            elif in_string and char == '\r':
-                escaped_chars.append('\\r')
-            elif in_string and char == '\t':
-                escaped_chars.append('\\t')
-            else:
-                escaped_chars.append(char)
-            escaped = False
-    text = "".join(escaped_chars)
-
-    # Replace absurdly large numbers (11+ digits) with 0 — Gemini sometimes
-    # hallucinates astronomically large integers in metadata fields like total_tasks
-    text = re.sub(r'\b\d{11,}\b', '0', text)
-        
-    return text
-
 class SprintGenerationService:
-    def __init__(self, ai_provider: AIProvider, db: AsyncSession):
-        self.ai = ai_provider
+    def __init__(self, db: AsyncSession):
         self.db = db
 
-    async def generate_sprints(self, project_id: UUID, user_id: UUID) -> list[Sprint]:
-        """
-        1. Fetch project and its generated documents
-        2. Build context with solution, problem, session data
-        3. Call Gemini AI with all docs as context
-        4. Parse sprint + task structure from JSON response
-        5. Create Sprint records with SprintTask children
-        6. Each SprintTask stores the full prompt text
-        7. Update project status to "doc_review"
-        8. Return created sprints
-        """
-        # Fetch project with documents, solution, problem statement, session, evaluation
+    def _dump_project_docs_to_disk(self, project: Project) -> str:
+        project_dir = ProjectDirService.get_project_dir(str(project.id), project.name)
+        docs_dir = os.path.join(project_dir, "docs")
+        os.makedirs(docs_dir, exist_ok=True)
+        
+        for doc in project.documents:
+            filename = f"{doc.doc_type}.md"
+            filepath = os.path.join(docs_dir, filename)
+            with open(filepath, "w", encoding="utf-8") as f:
+                f.write(doc.content)
+                
+        return project_dir
+
+    async def _get_project_with_relations(self, project_id: UUID, user_id: UUID) -> Project:
         stmt = (
             select(Project)
             .where(Project.id == project_id, Project.user_id == user_id)
@@ -176,110 +55,11 @@ class SprintGenerationService:
         project = res.scalars().first()
         if not project:
             raise HTTPException(status_code=404, detail="Project not found")
+        return project
 
-        # Find specific documents
-        arch_doc = ""
-        prd_doc = ""
-        trd_doc = ""
-        for doc in project.documents:
-            if doc.doc_type == "architecture":
-                arch_doc = doc.content
-            elif doc.doc_type == "prd":
-                prd_doc = doc.content
-            elif doc.doc_type == "trd":
-                trd_doc = doc.content
-
-        # Build context
-        solution = project.solution
-        problem = solution.problem_statement
-        session = problem.session
-
-        try:
-            mat_level = MaturityLevel(project.maturity_level)
-        except ValueError:
-            mat_level = MaturityLevel.MVP
-        
-        maturity_config = get_maturity_config(mat_level)
-
-        context = {
-            "solution": {
-                "title": solution.title,
-                "description": solution.description,
-                "mechanism": solution.mechanism,
-                "tech_stack": solution.tech_stack or [],
-                "target_user": solution.target_user,
-                "revenue_model": solution.revenue_model
-            },
-            "problem": {
-                "title": problem.title,
-                "description": problem.description,
-                "target_user": problem.target_user,
-                "core_pain": problem.core_pain,
-                "market_context": problem.market_context
-            },
-            "session": {
-                "industry": session.industry,
-                "location": session.location,
-                "maturity_level": session.maturity_level,
-                "tech_stack_preferences": session.tech_stack_preferences or []
-            },
-            "maturity_config": maturity_config.model_dump() if hasattr(maturity_config, "model_dump") else maturity_config.dict()
-        }
-
-        # Build prompt
-        system_prompt, user_prompt = build_sprint_prompts_prompt(context, arch_doc, prd_doc, trd_doc)
-
-        # Call Gemini AI
-        response_text = await self.ai.generate(
-            prompt=user_prompt,
-            system_prompt=system_prompt,
-            response_schema={
-                "type": "OBJECT",
-                "properties": {
-                    "sprints": {
-                        "type": "ARRAY",
-                        "items": {
-                            "type": "OBJECT",
-                            "properties": {
-                                "sprint_number": {"type": "INTEGER"},
-                                "name": {"type": "STRING"},
-                                "description": {"type": "STRING"},
-                                "tasks": {
-                                    "type": "ARRAY",
-                                    "items": {
-                                        "type": "OBJECT",
-                                        "properties": {
-                                            "task_number": {"type": "INTEGER"},
-                                            "name": {"type": "STRING"},
-                                            "prompt": {"type": "STRING"},
-                                            "test_command": {"type": "STRING"},
-                                            "expected_test_count": {"type": "INTEGER"},
-                                            "estimated_tokens": {"type": "INTEGER"}
-                                        },
-                                        "required": ["task_number", "name", "prompt", "test_command"]
-                                    }
-                                }
-                            },
-                            "required": ["sprint_number", "name", "tasks"]
-                        }
-                    },
-                    "total_tasks": {"type": "INTEGER"},
-                    "total_sprints": {"type": "INTEGER"},
-                    "estimated_total_tests": {"type": "INTEGER"}
-                },
-                "required": ["sprints"]
-            }
-        )
-
-        try:
-            cleaned_text = clean_json_response(response_text)
-            data = json.loads(cleaned_text)
-        except Exception as e:
-            logger.error(f"Failed to parse JSON response from Gemini: {response_text}, error: {e}")
-            raise HTTPException(status_code=500, detail="Failed to parse sprint breakdown JSON response from Gemini.")
-
+    async def _save_sprints(self, project_id: UUID, data: dict) -> list[Sprint]:
         # Clear existing sprints and tasks to allow regeneration
-        stmt_existing_sprints = select(Sprint).where(Sprint.project_id == project.id)
+        stmt_existing_sprints = select(Sprint).where(Sprint.project_id == project_id)
         res_existing_sprints = await self.db.execute(stmt_existing_sprints)
         existing_sprints = res_existing_sprints.scalars().all()
         for s in existing_sprints:
@@ -288,14 +68,13 @@ class SprintGenerationService:
         created_sprints = []
         for sprint_data in data.get("sprints", []):
             sprint = Sprint(
-                project_id=project.id,
+                project_id=project_id,
                 sprint_number=sprint_data["sprint_number"],
                 name=sprint_data["name"],
                 description=sprint_data.get("description"),
                 status="pending"
             )
             self.db.add(sprint)
-            # Flush so we get sprint.id
             await self.db.flush()
 
             for task_data in sprint_data.get("tasks", []):
@@ -319,52 +98,13 @@ class SprintGenerationService:
             
             created_sprints.append(sprint)
 
-        project.status = "doc_review"
-        await self.db.commit()
+        return created_sprints
 
-        # Reload sprints with tasks to return full objects
-        stmt_reload = (
-            select(Sprint)
-            .where(Sprint.project_id == project.id)
-            .options(selectinload(Sprint.tasks))
-            .order_by(Sprint.sprint_number.asc())
-        )
-        res_reload = await self.db.execute(stmt_reload)
-        return res_reload.scalars().all()
-
-    async def generate_sprints_stream(self, project_id: UUID, user_id: UUID):
-        yield {"status": "analyzing", "message": "Analyzing documentation..."}
+    async def generate_sprints(self, project_id: UUID, user_id: UUID) -> list[Sprint]:
+        # 1. Fetch project with solution, problem, evaluation, session data
+        project = await self._get_project_with_relations(project_id, user_id)
         
-        # Fetch project with documents, solution, problem statement, session, evaluation
-        stmt = (
-            select(Project)
-            .where(Project.id == project_id, Project.user_id == user_id)
-            .options(
-                selectinload(Project.documents),
-                selectinload(Project.solution).selectinload(Solution.problem_statement).selectinload(ProblemStatement.session),
-                selectinload(Project.solution).selectinload(Solution.evaluation)
-            )
-        )
-        res = await self.db.execute(stmt)
-        project = res.scalars().first()
-        if not project:
-            raise HTTPException(status_code=404, detail="Project not found")
-
-        yield {"status": "generating", "message": "Generating sprint breakdown and task prompts..."}
-
-        # Find specific documents
-        arch_doc = ""
-        prd_doc = ""
-        trd_doc = ""
-        for doc in project.documents:
-            if doc.doc_type == "architecture":
-                arch_doc = doc.content
-            elif doc.doc_type == "prd":
-                prd_doc = doc.content
-            elif doc.doc_type == "trd":
-                trd_doc = doc.content
-
-        # Build context
+        # 2. Build context
         solution = project.solution
         problem = solution.problem_statement
         session = problem.session
@@ -401,101 +141,124 @@ class SprintGenerationService:
             "maturity_config": maturity_config.model_dump() if hasattr(maturity_config, "model_dump") else maturity_config.dict()
         }
 
-        # Build prompt
-        system_prompt, user_prompt = build_sprint_prompts_prompt(context, arch_doc, prd_doc, trd_doc)
+        # 3. Dump docs to project directory and build the prompt pointing to files
+        project_dir = self._dump_project_docs_to_disk(project)
+        prompt = build_sprint_prompts_disk_prompt(context)
 
-        # Call Gemini AI
-        response_text = await self.ai.generate(
-            prompt=user_prompt,
-            system_prompt=system_prompt,
-            response_schema={
-                "type": "OBJECT",
-                "properties": {
-                    "sprints": {
-                        "type": "ARRAY",
-                        "items": {
-                            "type": "OBJECT",
-                            "properties": {
-                                "sprint_number": {"type": "INTEGER"},
-                                "name": {"type": "STRING"},
-                                "description": {"type": "STRING"},
-                                "tasks": {
-                                    "type": "ARRAY",
-                                    "items": {
-                                        "type": "OBJECT",
-                                        "properties": {
-                                            "task_number": {"type": "INTEGER"},
-                                            "name": {"type": "STRING"},
-                                            "prompt": {"type": "STRING"},
-                                            "test_command": {"type": "STRING"},
-                                            "expected_test_count": {"type": "INTEGER"},
-                                            "estimated_tokens": {"type": "INTEGER"}
-                                        },
-                                        "required": ["task_number", "name", "prompt", "test_command"]
-                                    }
-                                }
-                            },
-                            "required": ["sprint_number", "name", "tasks"]
-                        }
-                    },
-                    "total_tasks": {"type": "INTEGER"},
-                    "total_sprints": {"type": "INTEGER"},
-                    "estimated_total_tests": {"type": "INTEGER"}
-                },
-                "required": ["sprints"]
-            }
+        # 4. Call ClaudeService.run_prompt() with this prompt and read permission in project directory
+        result = await asyncio.to_thread(
+            ClaudeService.run_prompt,
+            prompt=prompt,
+            cwd=project_dir,
+            timeout=600,
+            tools="Read",
+            check_success=False
         )
 
-        try:
-            cleaned_text = clean_json_response(response_text)
-            data = json.loads(cleaned_text)
-        except Exception as e:
-            logger.error(f"Failed to parse JSON response from Gemini: {response_text}, error: {e}")
-            raise HTTPException(status_code=500, detail="Failed to parse sprint breakdown JSON response from Gemini.")
+        if not result["success"]:
+            if result["is_rate_limited"]:
+                reset_time = result["rate_limit_reset"]
+                reset_str = reset_time.isoformat() if hasattr(reset_time, "isoformat") else str(reset_time)
+                raise HTTPException(429, detail=f"Claude Code rate limited. Resets at: {reset_str}")
+            raise HTTPException(500, detail=f"Sprint generation failed: {result['error']}")
 
-        # Clear existing sprints and tasks to allow regeneration
-        stmt_existing_sprints = select(Sprint).where(Sprint.project_id == project.id)
-        res_existing_sprints = await self.db.execute(stmt_existing_sprints)
-        existing_sprints = res_existing_sprints.scalars().all()
-        for s in existing_sprints:
-            await self.db.delete(s)
+        # 5. Parse JSON response into Sprint + SprintTask records
+        sprint_data = self._parse_sprint_json(result["output"])
 
-        sprint_count = 0
-        task_count = 0
-        for sprint_data in data.get("sprints", []):
-            sprint_count += 1
-            sprint = Sprint(
-                project_id=project.id,
-                sprint_number=sprint_data["sprint_number"],
-                name=sprint_data["name"],
-                description=sprint_data.get("description"),
-                status="pending"
-            )
-            self.db.add(sprint)
-            await self.db.flush()
+        # 6. Save to database
+        await self._save_sprints(project_id, sprint_data)
 
-            for task_data in sprint_data.get("tasks", []):
-                task_count += 1
-                from app.services.prompt_validator import PromptValidator
-                val_res = PromptValidator.validate_prompt(task_data["prompt"])
-                
-                task = SprintTask(
-                    sprint_id=sprint.id,
-                    task_number=task_data["task_number"],
-                    name=task_data["name"],
-                    prompt=task_data["prompt"],
-                    status="pending",
-                    test_command=task_data.get("test_command"),
-                    test_count=task_data.get("expected_test_count") or 0,
-                    tests_passed=0,
-                    tests_failed=0,
-                    retry_count=0,
-                    validation_results=val_res
-                )
-                self.db.add(task)
-
+        # 7. Update project status to "doc_review"
         project.status = "doc_review"
         await self.db.commit()
+
+        # Reload sprints with tasks to return full objects
+        stmt_reload = (
+            select(Sprint)
+            .where(Sprint.project_id == project.id)
+            .options(selectinload(Sprint.tasks))
+            .order_by(Sprint.sprint_number.asc())
+        )
+        res_reload = await self.db.execute(stmt_reload)
+        return res_reload.scalars().all()
+
+    async def generate_sprints_stream(self, project_id: UUID, user_id: UUID):
+        # 1. Preparing
+        yield {"status": "preparing", "message": "Gathering project documents..."}
+        project = await self._get_project_with_relations(project_id, user_id)
+        
+        solution = project.solution
+        problem = solution.problem_statement
+        session = problem.session
+
+        try:
+            mat_level = MaturityLevel(project.maturity_level)
+        except ValueError:
+            mat_level = MaturityLevel.MVP
+        
+        maturity_config = get_maturity_config(mat_level)
+
+        context = {
+            "solution": {
+                "title": solution.title,
+                "description": solution.description,
+                "mechanism": solution.mechanism,
+                "tech_stack": solution.tech_stack or [],
+                "target_user": solution.target_user,
+                "revenue_model": solution.revenue_model
+            },
+            "problem": {
+                "title": problem.title,
+                "description": problem.description,
+                "target_user": problem.target_user,
+                "core_pain": problem.core_pain,
+                "market_context": problem.market_context
+            },
+            "session": {
+                "industry": session.industry,
+                "location": session.location,
+                "maturity_level": session.maturity_level,
+                "tech_stack_preferences": session.tech_stack_preferences or []
+            },
+            "maturity_config": maturity_config.model_dump() if hasattr(maturity_config, "model_dump") else maturity_config.dict()
+        }
+
+        # 2. Generating
+        yield {"status": "generating", "message": "Claude Code is generating sprint breakdown... (this may take 2-5 minutes)"}
+        project_dir = self._dump_project_docs_to_disk(project)
+        prompt = build_sprint_prompts_disk_prompt(context)
+        
+        result = await asyncio.to_thread(
+            ClaudeService.run_prompt,
+            prompt=prompt,
+            cwd=project_dir,
+            timeout=600,
+            tools="Read",
+            check_success=False
+        )
+
+        if not result["success"]:
+            if result["is_rate_limited"]:
+                reset_time = result["rate_limit_reset"]
+                reset_str = reset_time.isoformat() if hasattr(reset_time, "isoformat") else str(reset_time)
+                raise HTTPException(429, detail=f"Claude Code rate limited. Resets at: {reset_str}")
+            raise HTTPException(500, detail=f"Sprint generation failed: {result['error']}")
+
+        # 3. Parsing
+        yield {"status": "parsing", "message": "Parsing sprint structure..."}
+        sprint_data = self._parse_sprint_json(result["output"])
+
+        # 4. Validating
+        yield {"status": "validating", "message": "Validating prompt quality..."}
+        
+        # 5. Saving (includes validation internally)
+        await self._save_sprints(project_id, sprint_data)
+        
+        project.status = "doc_review"
+        await self.db.commit()
+
+        sprint_count = len(sprint_data.get("sprints", []))
+        task_count = sum(len(s.get("tasks", [])) for s in sprint_data.get("sprints", []))
 
         yield {
             "status": "complete",
@@ -503,6 +266,29 @@ class SprintGenerationService:
             "sprint_count": sprint_count,
             "task_count": task_count
         }
+
+    def _parse_sprint_json(self, output: str) -> dict:
+        """
+        Parse JSON from Claude's output.
+        Handle cases where Claude wraps JSON in markdown fences.
+        """
+        import json
+        import re
+        
+        # Strip markdown code fences if present
+        cleaned = output.strip()
+        cleaned = re.sub(r'^```(?:json)?\s*\n?', '', cleaned)
+        cleaned = re.sub(r'\n?```\s*$', '', cleaned)
+        cleaned = cleaned.strip()
+        
+        try:
+            return json.loads(cleaned)
+        except json.JSONDecodeError as e:
+            # Try to find JSON object in the output
+            match = re.search(r'\{[\s\S]*\}', cleaned)
+            if match:
+                return json.loads(match.group())
+            raise ValueError(f"Failed to parse sprint JSON from Claude output: {e}")
 
     async def get_sprints(self, project_id: UUID, user_id: UUID) -> list[Sprint]:
         """Get all sprints with tasks for a project"""

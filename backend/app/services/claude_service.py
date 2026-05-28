@@ -2,8 +2,12 @@ import subprocess
 import shutil
 import time
 import re
+import os
+import logging
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+
+logger = logging.getLogger(__name__)
 
 class ClaudeOutputParser:
     """Parse and clean Claude Code CLI output"""
@@ -179,27 +183,22 @@ class ClaudeService:
     """Wrapper around the Claude Code CLI"""
     
     @staticmethod
+    def _find_claude_binary() -> str | None:
+        """Find the claude binary path across common locations"""
+        claude_path = shutil.which("claude")
+        if claude_path:
+            return claude_path
+            
+        for path in ["~/.npm-global/bin/claude", "/usr/local/bin/claude", "/usr/bin/claude", "~/.local/bin/claude"]:
+            expanded = os.path.expanduser(path)
+            if os.path.isfile(expanded):
+                return expanded
+        return None
+
+    @staticmethod
     def check_installation() -> ClaudeStatus:
-        """
-        Check if claude CLI is available:
-        1. shutil.which("claude") — find binary
-        2. subprocess.run(["claude", "--version"]) — get version
-        3. subprocess.run(["claude", "-p", "say hello", "--output-format", "text"]) — test auth
-        4. Return ClaudeStatus with results
-        
-        If claude not found: is_installed=False, error="Claude Code CLI not found. Install with: npm install -g @anthropic-ai/claude-code"
-        If not authenticated: is_installed=True, is_authenticated=False, error="Claude Code not authenticated. Run: claude login"
-        If working: all True, version populated
-        """
-        path = shutil.which("claude")
-        if not path:
-            try:
-                res = subprocess.run(["claude", "--version"], capture_output=True, text=True)
-                if res.returncode == 0:
-                    path = "claude"
-            except Exception:
-                pass
-                
+        """Check if claude CLI is available and authenticated"""
+        path = ClaudeService._find_claude_binary()
         if not path:
             return ClaudeStatus(
                 is_installed=False,
@@ -210,8 +209,16 @@ class ClaudeService:
             )
             
         version = None
+        env = os.environ.copy()
+        npm_global = os.path.expanduser("~/.npm-global/bin")
+        local_bin = os.path.expanduser("~/.local/bin")
+        if npm_global not in env.get("PATH", ""):
+            env["PATH"] = npm_global + ":" + env.get("PATH", "")
+        if local_bin not in env.get("PATH", ""):
+            env["PATH"] = local_bin + ":" + env.get("PATH", "")
+
         try:
-            res = subprocess.run(["claude", "--version"], capture_output=True, text=True)
+            res = subprocess.run([path, "--version"], capture_output=True, text=True, env=env)
             if res.returncode == 0:
                 version = res.stdout.strip()
         except Exception:
@@ -219,10 +226,12 @@ class ClaudeService:
 
         try:
             res_auth = subprocess.run(
-                ["claude", "-p", "say hello", "--output-format", "text"],
+                [path, "-p", "--dangerously-skip-permissions", "--output-format", "text"],
+                input="say hello",
                 capture_output=True,
                 text=True,
-                timeout=15
+                timeout=15,
+                env=env
             )
             output = (res_auth.stdout or "") + (res_auth.stderr or "")
             
@@ -248,124 +257,260 @@ class ClaudeService:
                 version=version,
                 error=error_msg
             )
-        except Exception:
+        except Exception as e:
             return ClaudeStatus(
                 is_installed=True,
                 cli_path=path,
                 is_authenticated=False,
                 version=version,
-                error="Claude Code not authenticated. Run: claude login"
+                error=f"Claude Code not authenticated: {str(e)}"
             )
     
     @staticmethod
-    def run_prompt(prompt: str, cwd: str, timeout: int = 300) -> dict:
-        """
-        Execute a prompt via claude -p.
+    def run_prompt(prompt: str, cwd: str, timeout: int = 600, tools: str = "Read,Write,Edit,Bash", check_success: bool = True) -> dict:
+        """Execute a prompt via claude -p with full debug logging and tool fallback"""
         
-        Command: claude -p "{prompt}" --allowedTools "Read,Write,Edit,Bash" --output-format text
+        # Step 1: Find claude binary
+        claude_path = ClaudeService._find_claude_binary()
+        logger.info(f"[CLAUDE DEBUG] claude binary path: {claude_path}")
+        logger.info(f"[CLAUDE DEBUG] PATH env: {os.environ.get('PATH', 'NOT SET')}")
         
-        Returns: {
-            "success": bool,
-            "output": str,
-            "error": str | None,
-            "is_rate_limited": bool,
-            "rate_limit_reset": datetime | None,  # parsed from output
-            "exit_code": int,
-            "duration_seconds": float
-        }
+        if not claude_path:
+            logger.error("[CLAUDE DEBUG] Claude Code CLI not found anywhere!")
+            ret = {
+                "success": False,
+                "output": "",
+                "error": "Claude Code CLI not found. Install with: npm install -g @anthropic-ai/claude-code",
+                "is_rate_limited": False,
+                "rate_limit_reset": None,
+                "exit_code": -1,
+                "duration_seconds": 0
+            }
+            ClaudeService._log_activity(prompt, cwd, timeout, ret)
+            return ret
         
-        Handles:
-        - Normal success: success=True, output=stdout
-        - Rate limit: parse reset time from stderr/stdout, is_rate_limited=True
-        - Timeout (>300s): success=False, error="Prompt execution timed out"
-        - Process error: success=False, error=stderr
-        """
-        start_time = time.time()
+        # Step 2: Build command
         cmd = [
-            "claude",
-            "-p",
-            prompt,
-            "--allowedTools",
-            "Read,Write,Edit,Bash",
+            claude_path, 
+            "-p", 
             "--dangerously-skip-permissions",
-            "--output-format",
+            "--output-format", 
             "text"
         ]
+        if tools is not None:
+            cmd.extend(["--tools", tools])
+        logger.info(f"[CLAUDE DEBUG] Command: {' '.join(cmd[:3])}... (prompt length: {len(prompt)} chars passed via stdin)")
+        logger.info(f"[CLAUDE DEBUG] Working directory: {cwd}")
+        logger.info(f"[CLAUDE DEBUG] Timeout: {timeout}s")
+        logger.info(f"[CLAUDE DEBUG] CWD exists: {os.path.isdir(cwd)}")
+        
+        # Step 3: Build environment
+        env = os.environ.copy()
+        npm_global = os.path.expanduser("~/.npm-global/bin")
+        local_bin = os.path.expanduser("~/.local/bin")
+        if npm_global not in env.get("PATH", ""):
+            env["PATH"] = npm_global + ":" + env.get("PATH", "")
+        if local_bin not in env.get("PATH", ""):
+            env["PATH"] = local_bin + ":" + env.get("PATH", "")
+        
+        logger.info(f"[CLAUDE DEBUG] Node path: {shutil.which('node')}")
+        logger.info(f"[CLAUDE DEBUG] NPM path: {shutil.which('npm')}")
+        
+        # Step 4: Execute
+        start_time = time.time()
+        logger.info(f"[CLAUDE DEBUG] Starting subprocess at {time.strftime('%H:%M:%S')}...")
+        
         try:
-            res = subprocess.run(
+            result = subprocess.run(
                 cmd,
-                cwd=cwd,
+                input=prompt,
                 capture_output=True,
                 text=True,
-                timeout=timeout
+                cwd=cwd,
+                timeout=timeout,
+                env=env
             )
+            
+            # Step 5: Handle retry without tools if that failed
+            if result.returncode != 0 and any(flag in (result.stderr or "") or flag in (result.stdout or "") for flag in ["allowedTools", "tools"]):
+                logger.info("[CLAUDE DEBUG] Retrying without tools flags")
+                cmd = [
+                    claude_path, 
+                    "-p", 
+                    "--dangerously-skip-permissions", 
+                    "--output-format", 
+                    "text"
+                ]
+                result = subprocess.run(
+                    cmd,
+                    input=prompt,
+                    capture_output=True,
+                    text=True,
+                    cwd=cwd,
+                    timeout=timeout,
+                    env=env
+                )
+            
             duration = time.time() - start_time
-            stdout = res.stdout or ""
-            stderr = res.stderr or ""
-            output = stdout + "\n" + stderr
+            logger.info(f"[CLAUDE DEBUG] Subprocess completed in {duration:.1f}s")
+            logger.info(f"[CLAUDE DEBUG] Exit code: {result.returncode}")
+            logger.info(f"[CLAUDE DEBUG] Stdout length: {len(result.stdout or '')} chars")
+            logger.info(f"[CLAUDE DEBUG] Stderr length: {len(result.stderr or '')} chars")
             
-            cleaned_output = ClaudeOutputParser.clean_output(output)
+            stdout_str = result.stdout or ""
+            stderr_str = result.stderr or ""
             
-            is_limited, reset_at = ClaudeService.parse_rate_limit(output)
+            if stdout_str:
+                logger.info(f"[CLAUDE DEBUG] Stdout preview: {stdout_str[:500]}")
+            if stderr_str:
+                logger.warning(f"[CLAUDE DEBUG] Stderr preview: {stderr_str[:500]}")
             
-            success = res.returncode == 0 and ClaudeOutputParser.detect_success(cleaned_output)
+            combined_output = stdout_str + "\n" + stderr_str
+            cleaned_output = ClaudeOutputParser.clean_output(combined_output)
+            
+            # Check for rate limit
+            is_limited, reset_at = ClaudeService.parse_rate_limit(combined_output)
+            
+            if is_limited:
+                logger.warning(f"[CLAUDE DEBUG] Rate limited! Reset at: {reset_at}")
+            
+            success = result.returncode == 0
+            if check_success:
+                success = success and ClaudeOutputParser.detect_success(cleaned_output)
             error = None
             if not success and not is_limited:
-                error = stderr or cleaned_output or f"Process exited with code {res.returncode}"
-                
-            return {
+                error = stderr_str or cleaned_output or f"Process exited with code {result.returncode}"
+            
+            ret = {
                 "success": success and not is_limited,
                 "output": cleaned_output,
                 "error": error,
                 "is_rate_limited": is_limited,
                 "rate_limit_reset": reset_at,
-                "exit_code": res.returncode,
+                "exit_code": result.returncode,
                 "duration_seconds": duration
             }
+            
         except subprocess.TimeoutExpired:
             duration = time.time() - start_time
-            return {
+            logger.error(f"[CLAUDE DEBUG] Subprocess TIMED OUT after {duration:.1f}s")
+            ret = {
                 "success": False,
                 "output": "",
-                "error": "Prompt execution timed out",
+                "error": f"Claude Code timed out after {timeout} seconds",
                 "is_rate_limited": False,
                 "rate_limit_reset": None,
                 "exit_code": -1,
                 "duration_seconds": duration
+            }
+        except FileNotFoundError as e:
+            logger.error(f"[CLAUDE DEBUG] FileNotFoundError: {e}")
+            ret = {
+                "success": False,
+                "output": "",
+                "error": f"Claude Code binary not found: {e}",
+                "is_rate_limited": False,
+                "rate_limit_reset": None,
+                "exit_code": -1,
+                "duration_seconds": 0
             }
         except Exception as e:
             duration = time.time() - start_time
-            return {
+            logger.error(f"[CLAUDE DEBUG] Unexpected error: {type(e).__name__}: {e}")
+            ret = {
                 "success": False,
                 "output": "",
-                "error": str(e),
+                "error": f"Unexpected error: {type(e).__name__}: {e}",
                 "is_rate_limited": False,
                 "rate_limit_reset": None,
                 "exit_code": -1,
                 "duration_seconds": duration
             }
-    
+            
+        ClaudeService._log_activity(prompt, cwd, timeout, ret)
+        return ret
+        
+    @staticmethod
+    def _log_activity(prompt: str, cwd: str, timeout: int, result_dict: dict):
+        """Log the prompt and results to backend/logs/claude_activity.log"""
+        try:
+            log_dir = "/home/dev84/Work/aiAutomation/backend/logs"
+            os.makedirs(log_dir, exist_ok=True)
+            log_path = os.path.join(log_dir, "claude_activity.log")
+            
+            with open(log_path, "a", encoding="utf-8") as f:
+                f.write(f"\n{'='*80}\n")
+                f.write(f"TIMESTAMP: {datetime.utcnow().isoformat()}Z\n")
+                f.write(f"CWD: {cwd}\n")
+                f.write(f"TIMEOUT: {timeout}s\n")
+                f.write(f"DURATION: {result_dict.get('duration_seconds', 0):.1f}s\n")
+                f.write(f"EXIT CODE: {result_dict.get('exit_code', -1)}\n")
+                f.write(f"SUCCESS: {result_dict.get('success', False)}\n")
+                f.write(f"RATE LIMITED: {result_dict.get('is_rate_limited', False)}\n")
+                if result_dict.get('rate_limit_reset'):
+                    f.write(f"RATE LIMIT RESET: {result_dict['rate_limit_reset'].isoformat()}Z\n")
+                f.write(f"\nPROMPT:\n{prompt}\n")
+                f.write(f"\n{'-'*40} OUTPUT {'-'*40}\n")
+                f.write(result_dict.get('output', ''))
+                if result_dict.get('error'):
+                    f.write(f"\nERROR:\n{result_dict['error']}\n")
+                f.write(f"\n{'='*80}\n")
+        except Exception as e:
+            logger.error(f"[CLAUDE DEBUG] Failed to write activity log: {e}")
+            
     @staticmethod
     def parse_rate_limit(output: str) -> tuple[bool, datetime | None]:
         """
         Parse rate limit from Claude output.
         
         Patterns to match:
-        1. "Resets in: X hours Y minutes" → compute datetime
-        2. "Resets in: Y minutes" → compute datetime (no hours)
-        3. "Your limit will reset at H:MM PM" → parse time (assume today, or tomorrow if past)
-        4. "usage limit reached" → rate limited but no time given, default 5 hours
-        5. "rate limit" → same as above
+        1. "Resets in: X hours Y minutes" -> compute datetime
+        2. "Resets in: Y minutes" -> compute datetime (no hours)
+        3. "Your limit will reset at H:MM PM" -> parse time
+        4. "resets H:MM PM" -> parse time
+        5. "usage limit reached" -> rate limited but no time given, default 5 hours
+        6. "session limit" -> same as above
         
         Returns: (is_rate_limited: bool, reset_at: datetime | None)
         """
-        if not output:
-            return False, None
-            
+        # If it is a valid JSON document (or contains one), it's not a rate limit message
+        try:
+            cleaned = output.strip()
+            # Remove potential markdown block wrap if any
+            if cleaned.startswith("```"):
+                cleaned = re.sub(r"^```[a-zA-Z]*\n|```$", "", cleaned, flags=re.MULTILINE).strip()
+            if (cleaned.startswith('{') and cleaned.endswith('}')) or (cleaned.startswith('[') and cleaned.endswith(']')):
+                import json
+                json.loads(cleaned)
+                return False, None
+            # Check if it contains a valid JSON object or array anywhere
+            match_obj = re.search(r'\{[\s\S]*\}', cleaned)
+            if match_obj:
+                import json
+                json.loads(match_obj.group())
+                return False, None
+            match_arr = re.search(r'\[[\s\S]*\]', cleaned)
+            if match_arr:
+                import json
+                json.loads(match_arr.group())
+                return False, None
+        except Exception:
+            pass
+
         output_lower = output.lower()
         is_limited = False
         
-        if any(p in output_lower for p in ["usage limit reached", "rate limit", "resets in:", "limit will reset"]):
+        # Avoid matching generic terms like 'rate limit' which are common in task descriptions
+        limit_keywords = [
+            "usage limit reached",
+            "rate limit resets in",
+            "rate limit exceeded",
+            "resets in:",
+            "limit will reset",
+            "session limit",
+            "hit your limit"
+        ]
+        if any(p in output_lower for p in limit_keywords):
             is_limited = True
             
         if not is_limited:
@@ -384,7 +529,7 @@ class ClaudeService:
             reset_at = datetime.utcnow() + timedelta(minutes=mins)
             return True, reset_at
             
-        time_match = re.search(r'(?:reset at|resets at|reset will be at|limit will reset at)\s*(\d+:\d+\s*(?:AM|PM|am|pm)?)', output, re.IGNORECASE)
+        time_match = re.search(r'(?:reset at|resets at|reset will be at|limit will reset at|resets)\s*(\d+:\d+\s*(?:AM|PM|am|pm)?)', output, re.IGNORECASE)
         if not time_match:
             time_match = re.search(r'reset\s+at\s*(\d+:\d+\s*(?:AM|PM|am|pm)?)', output, re.IGNORECASE)
             
@@ -410,10 +555,15 @@ class ClaudeService:
                             pass
                             
                 if parsed_time:
-                    now = datetime.utcnow()
-                    reset_at = datetime.combine(now.date(), parsed_time)
-                    if reset_at <= now:
-                        reset_at += timedelta(days=1)
+                    now_local = datetime.now()
+                    reset_at_local = datetime.combine(now_local.date(), parsed_time)
+                    if reset_at_local <= now_local:
+                        reset_at_local += timedelta(days=1)
+                    
+                    # Convert local to UTC
+                    now_utc = datetime.utcnow()
+                    offset = now_local - now_utc
+                    reset_at = reset_at_local - offset
                     return True, reset_at
             except Exception:
                 pass

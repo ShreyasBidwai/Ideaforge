@@ -178,20 +178,18 @@ async def get_project_document(
 async def generate_sprints(
     id: UUID,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-    ai_provider: AIProvider = Depends(get_ai_provider)
+    db: AsyncSession = Depends(get_db)
 ):
-    service = SprintGenerationService(ai_provider, db)
+    service = SprintGenerationService(db)
     return await service.generate_sprints(id, current_user.id)
 
 @router.post("/projects/{id}/generate-sprints/stream")
 async def generate_sprints_stream(
     id: UUID,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-    ai_provider: AIProvider = Depends(get_ai_provider)
+    db: AsyncSession = Depends(get_db)
 ):
-    service = SprintGenerationService(ai_provider, db)
+    service = SprintGenerationService(db)
     
     # Verify project exists and belongs to user
     stmt = select(Project).where(Project.id == id, Project.user_id == current_user.id)
@@ -207,6 +205,8 @@ async def generate_sprints_stream(
                 if event["status"] == "complete":
                     sse_type = "complete"
                 yield format_sse_event(sse_type, event)
+        except HTTPException as he:
+            yield format_sse_event("error", {"status": "error", "message": he.detail})
         except Exception as e:
             yield format_sse_event("error", {"status": "error", "message": str(e)})
 
@@ -218,7 +218,7 @@ async def list_project_sprints(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    service = SprintGenerationService(None, db)
+    service = SprintGenerationService(db)
     return await service.get_sprints(id, current_user.id)
 
 @router.get("/projects/{id}/sprints/{sprint_id}/tasks", response_model=list[SprintTaskResponse])
@@ -250,7 +250,7 @@ async def get_task(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    service = SprintGenerationService(None, db)
+    service = SprintGenerationService(db)
     return await service.get_task(task_id, current_user.id)
 
 @router.get("/projects/{id}/setup-guide")

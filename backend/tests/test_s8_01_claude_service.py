@@ -80,3 +80,18 @@ async def test_claude_status_endpoint(client, auth_headers):
     data = response.json()
     assert "is_installed" in data
     assert "is_authenticated" in data
+
+
+# TEST 9: Claude debug endpoint
+@pytest.mark.anyio
+async def test_debug_claude_endpoint(client, auth_headers):
+    """GET /setup/debug-claude should return diagnostic dictionary"""
+    with patch('app.services.claude_service.ClaudeService.run_prompt') as mock_run:
+        mock_run.return_value = {"success": True, "output": "CLAUDE_CODE_WORKING", "error": None, "is_rate_limited": False, "rate_limit_reset": None, "exit_code": 0, "duration_seconds": 1.0}
+        response = await client.get("/api/v1/setup/debug-claude", headers=auth_headers)
+        assert response.status_code == 200
+        data = response.json()
+        assert "claude_path_shutil" in data
+        assert "claude_path_resolved" in data
+        assert "test_result" in data
+        assert data["test_result"]["output"] == "CLAUDE_CODE_WORKING"

@@ -1,75 +1,134 @@
-def build_sprint_prompts_prompt(context: dict, architecture_doc: str, prd_doc: str, trd_doc: str) -> tuple[str, str]:
+def build_sprint_prompts_prompt(context: dict, documents: dict[str, str]) -> str:
     """
-    Generate the sprint breakdown and individual task prompts.
-    
-    This is the MOST IMPORTANT prompt in the system.
-    The AI must produce self-contained, explicit prompts that Claude Code
-    can execute without any prior context — because each claude -p call
-    is a fresh session.
-    
-    Each prompt must include:
-    - Explicit file paths to create/modify
-    - Explicit code patterns and schemas
-    - Explicit test cases with test file paths and test commands
-    - Acceptance criteria
-    - NO references to "previous prompt" or "as we did before"
+    Build the sprint generation prompt for Claude Code.
+    context: solution, problem, session data
+    documents: dict of doc_type -> content
+    Returns: single prompt string
     """
+    tech_stack_str = ', '.join(context['solution']['tech_stack']) if isinstance(context['solution']['tech_stack'], list) else str(context['solution']['tech_stack'])
     
-    system_prompt = """You are an expert software architect who creates sprint breakdowns and coding prompts for AI coding agents.
+    prompt = f"""You are an expert software architect generating a sprint breakdown and coding task prompts for an AI coding agent (Claude Code).
 
-CRITICAL RULES:
-1. Return ONLY valid JSON. No markdown, no preamble.
-2. Each task prompt must be COMPLETELY SELF-CONTAINED. The AI agent that executes it has NO memory of previous tasks. It can only read existing files in the project directory.
-3. Every prompt must specify EXACT file paths to create or modify.
-4. Every prompt must include test cases with exact test file paths and test run commands.
-5. Prompts must be ordered so each task builds on files created by previous tasks.
-6. Each prompt should create a SMALL, testable unit of work — not an entire feature.
-7. Include the full tech stack and folder structure context in EVERY prompt that needs it.
-8. Test commands must be specific: "cd backend && python -m pytest tests/test_specific_file.py -v" not just "run tests".
-9. Keep prompts EXTREMELY CONCISE. The "prompt" field of each task MUST be less than 60 words. DO NOT generate code blocks, file templates, configs, or mock implementations. Simply describe the files to edit, the 1-2 sentence requirement, and the test command. This is critical to prevent the response from being truncated by token limits.
-10. NEVER use double quotes (") inside the text of the "prompt", "description", or "name" fields. In all code snippets, configurations, and scripts, use single quotes (') instead.
+OUTPUT FORMAT: Return ONLY valid JSON. No markdown fences, no preamble, no explanation. Just the raw JSON object.
 
-JSON Schema:
-{
+CRITICAL RULES FOR TASK PROMPTS:
+1. Each task prompt must be COMPLETELY SELF-CONTAINED. The AI agent executing it has ZERO memory of previous tasks. It can only read files that exist on disk from previous tasks.
+2. Every prompt must specify EXACT file paths to create or modify.
+3. Every prompt must include complete test cases with exact test file paths and test run commands.
+4. Prompts must be ordered so each task builds on FILES created by previous tasks (not on memory).
+5. Each prompt should create a SMALL, testable unit of work.
+6. Sprint 1, Task 1 MUST ALWAYS be a full project scaffold — create the directory structure, init package managers (package.json, requirements.txt), create base config files, create a hello world health endpoint with a passing test. The project directory will be completely empty.
+7. Test commands must be specific: "cd backend && python -m pytest tests/test_specific_file.py -v" not just "run tests".
+8. Every prompt must include the full tech stack context and project folder structure as reference since the agent has no memory.
+9. Each prompt must include a .env.example or reference to config if the task needs environment variables.
+
+PROJECT CONTEXT:
+- Name: {context['solution']['title']}
+- Industry: {context['session']['industry']}
+- Location: {context['session'].get('location', 'Not available')}
+- Maturity Level: {context['session']['maturity_level']}
+- Tech Stack: {tech_stack_str}
+
+ARCHITECTURE DOCUMENT:
+{documents.get('architecture', 'Not available')}
+
+PRODUCT REQUIREMENTS (PRD):
+{documents.get('prd', 'Not available')}
+
+TECHNICAL REQUIREMENTS (TRD):
+{documents.get('trd', 'Not available')}
+
+SPRINT PLAN:
+{documents.get('sprint_plan', 'Not available')}
+
+ENGINEERING STANDARDS:
+{documents.get('engineering_standards', 'Not available')}
+
+JSON SCHEMA TO FOLLOW:
+{{
   "sprints": [
-    {
+    {{
       "sprint_number": 1,
       "name": "Sprint name",
       "description": "What this sprint delivers",
       "tasks": [
-        {
+        {{
           "task_number": 1,
-          "name": "Short task name",
-          "prompt": "The FULL prompt text to send to claude -p. Must be self-contained. Include all file paths, schemas, patterns, and test cases. Under 60 words.",
+          "name": "Short descriptive task name",
+          "prompt": "The self-contained prompt text. Must include: project context, file paths to create/modify, complete code patterns, complete test cases with file paths, and test run commands. Word count: 100-150 words.",
           "test_command": "cd backend && python -m pytest tests/test_xxx.py -v",
-          "expected_test_count": 8,
-          "estimated_tokens": 5000
-        }
+          "expected_test_count": 8
+        }}
       ]
-    }
+    }}
   ],
-  "total_tasks": 4,
-  "total_sprints": 2,
-  "estimated_total_tests": 10
-}"""
+  "total_tasks": 10,
+  "total_sprints": 3,
+  "estimated_total_tests": 80
+}}
 
-    user_prompt = f"""Based on the following project documentation, generate a complete sprint breakdown with self-contained task prompts.
+Generate 2-4 sprints with 2-4 tasks each. Each task prompt must be self-contained and detailed enough that an AI agent with NO prior context can execute it by reading only the prompt and existing files on disk. Keep prompts focused and compact to avoid generation timeouts."""
+    return prompt
+
+
+def build_sprint_prompts_disk_prompt(context: dict) -> str:
+    """
+    Build the sprint generation prompt that instructs Claude Code to read docs from local disk CWD.
+    """
+    tech_stack_str = ', '.join(context['solution']['tech_stack']) if isinstance(context['solution']['tech_stack'], list) else str(context['solution']['tech_stack'])
+    
+    prompt = f"""You are an expert software architect generating a sprint breakdown and coding task prompts for an AI coding agent (Claude Code).
+
+To generate this sprint breakdown, first read the project specification documents from the `docs/` folder in the current directory:
+1. `docs/architecture.md` (Architecture Document)
+2. `docs/prd.md` (Product Requirements Document)
+3. `docs/trd.md` (Technical Requirements Document)
+4. `docs/sprint_plan.md` (High Level Sprint Plan)
+5. `docs/engineering_standards.md` (Engineering Standards)
+
+OUTPUT FORMAT: Return ONLY valid JSON. No markdown fences, no preamble, no explanation. Just the raw JSON object.
+
+CRITICAL RULES FOR TASK PROMPTS:
+1. Each task prompt must be COMPLETELY SELF-CONTAINED. The AI agent executing it has ZERO memory of previous tasks. It can only read files that exist on disk from previous tasks.
+2. Every prompt must specify EXACT file paths to create or modify.
+3. Every prompt must include complete test cases with exact test file paths and test run commands.
+4. Prompts must be ordered so each task builds on FILES created by previous tasks (not on memory).
+5. Each prompt should create a SMALL, testable unit of work.
+6. Sprint 1, Task 1 MUST ALWAYS be a full project scaffold — create the directory structure, init package managers (package.json, requirements.txt), create base config files, create a hello world health endpoint with a passing test. The project directory will be completely empty.
+7. Test commands must be specific: "cd backend && python -m pytest tests/test_specific_file.py -v" not just "run tests".
+8. Every prompt must include the full tech stack context and project folder structure as reference since the agent has no memory.
+9. Each prompt must include a .env.example or reference to config if the task needs environment variables.
 
 PROJECT CONTEXT:
-- Solution: {context['solution']['title']}
-- Tech Stack: {', '.join(context['solution']['tech_stack'])}
+- Name: {context['solution']['title']}
 - Industry: {context['session']['industry']}
-- Maturity: {context['session']['maturity_level']}
+- Location: {context['session'].get('location', 'Not available')}
+- Maturity Level: {context['session']['maturity_level']}
+- Tech Stack: {tech_stack_str}
 
-ARCHITECTURE DOCUMENT:
-{architecture_doc[:2500]}
+JSON SCHEMA TO FOLLOW:
+{{
+  "sprints": [
+    {{
+      "sprint_number": 1,
+      "name": "Sprint name",
+      "description": "What this sprint delivers",
+      "tasks": [
+        {{
+          "task_number": 1,
+          "name": "Short descriptive task name",
+          "prompt": "The self-contained prompt text. Must include: project context, file paths to create/modify, complete code patterns, complete test cases with file paths, and test run commands. Word count: 100-150 words.",
+          "test_command": "cd backend && python -m pytest tests/test_xxx.py -v",
+          "expected_test_count": 8
+        }}
+      ]
+    }}
+  ],
+  "total_tasks": 10,
+  "total_sprints": 3,
+  "estimated_total_tests": 80
+}}
 
-PRD (KEY REQUIREMENTS):
-{prd_doc[:1500]}
+Generate 2-4 sprints with 2-4 tasks each based on the documents in the `docs/` folder. Each task prompt must be self-contained and detailed enough that an AI agent with NO prior context can execute it by reading only the prompt and existing files on disk. Keep prompts focused and compact to avoid generation timeouts."""
+    return prompt
 
-TRD (TECHNICAL DETAILS):
-{trd_doc[:1500]}
-
-Generate exactly 2 sprints with exactly 2 tasks each (4 tasks total). Keep every single "prompt" field under 60 words. Use single quotes instead of double quotes for all string literals or code attributes within prompt texts."""
-
-    return system_prompt, user_prompt

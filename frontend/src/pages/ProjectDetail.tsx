@@ -180,6 +180,20 @@ export default function ProjectDetail() {
   const handleApproveEverythingAndBuild = async () => {
     if (!projectId) return;
     try {
+      // 1. Approve all documents first
+      await apiClient.post(`/api/v1/projects/${projectId}/documents/approve-all`);
+      
+      // 2. Fetch latest status to check sprints
+      await fetchBuildStatus(projectId);
+      
+      // 3. If sprints are not generated, trigger sprint generation stream and wait for it
+      if (!sprints || sprints.length === 0) {
+        await generateSprintsStream(projectId);
+        // Refresh again to ensure we have the new sprints
+        await fetchBuildStatus(projectId);
+      }
+      
+      // 4. Start the build
       await apiClient.post(`/api/v1/projects/${projectId}/approve-and-build`);
       await fetchBuildStatus(projectId);
       setActiveTab("build");
@@ -437,10 +451,10 @@ export default function ProjectDetail() {
                     </button>
                     <button
                       onClick={handleApproveEverythingAndBuild}
-                      disabled={!allDocsApproved}
-                      className="flex-1 sm:flex-initial px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed text-white font-medium rounded-lg text-sm transition-all border border-indigo-500/20 shadow-lg shadow-indigo-600/20 font-mono"
+                      disabled={sprintGenerationProgress !== null}
+                      className="flex-1 sm:flex-initial px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed text-white font-medium rounded-lg text-sm transition-all border border-indigo-500/20 shadow-lg shadow-indigo-600/20 font-mono uppercase"
                     >
-                      APPROVE ALL & START BUILD
+                      BUILD APP
                     </button>
                   </div>
                 </div>
@@ -638,6 +652,33 @@ export default function ProjectDetail() {
 
         {activeTab === "build" && (
           <div className="space-y-6">
+            {sprintGenerationProgress && (
+              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-8 flex flex-col items-center justify-center min-h-[200px] text-center space-y-3">
+                <Loader2 className="w-8 h-8 text-blue-500 animate-spin mx-auto" />
+                <h4 className="text-base font-bold text-white uppercase font-mono">
+                  {sprintGenerationProgress.status === "analyzing" ? "Analyzing Documentation" : "Generating Tasks"}
+                </h4>
+                <p className="text-sm text-slate-400">{sprintGenerationProgress.message}</p>
+              </div>
+            )}
+
+            {project.status === "doc_review" && !sprintGenerationProgress && (
+              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
+                <div className="space-y-1">
+                  <h4 className="text-base font-bold text-white font-mono uppercase tracking-wider">Start Build Pipeline</h4>
+                  <p className="text-sm text-slate-400 max-w-2xl leading-relaxed">
+                    All blueprint documents have been generated. Click build below to approve all documents and launch the automated coding agent.
+                  </p>
+                </div>
+                <button
+                  onClick={handleApproveEverythingAndBuild}
+                  className="w-full md:w-auto px-6 py-3 bg-indigo-600 hover:bg-indigo-500 text-white font-semibold rounded-lg text-sm transition-all border border-indigo-500/20 shadow shadow-indigo-600/20 font-mono uppercase whitespace-nowrap"
+                >
+                  BUILD APP
+                </button>
+              </div>
+            )}
+
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
               <div className="lg:col-span-2">
                 <BuildProgress progress={overallProgress} />

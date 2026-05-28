@@ -151,7 +151,7 @@ class BuildOrchestrator:
         await self.log(project_id, "INFO", "orchestrator", f"Starting task {task.task_number}: {task.name}")
 
         # Run Claude (Attempt 1)
-        success, output, rate_limit_reset = self.run_claude(task.prompt, project_dir)
+        success, output, rate_limit_reset = await self.run_claude(task.prompt, project_dir)
         task.claude_output = output
 
         if rate_limit_reset is not None:
@@ -201,7 +201,7 @@ class BuildOrchestrator:
                     # Level 2: Dependency fix first
                     dep_prompt = self.build_dependency_fix_prompt(task.error_output or "", project_dir)
                     await self.log(project_id, "INFO", "orchestrator", "Dependency/Import error detected. Running dependency fix prompt first...")
-                    success_dep, output_dep, rate_limit_dep = self.run_claude(dep_prompt, project_dir)
+                    success_dep, output_dep, rate_limit_dep = await self.run_claude(dep_prompt, project_dir)
                     task.claude_output = (task.claude_output or "") + "\n\n=== DEPENDENCY FIX OUTPUT ===\n\n" + output_dep
                     if rate_limit_dep is not None:
                         task.status = "rate_limited"
@@ -216,11 +216,11 @@ class BuildOrchestrator:
                     
                     # Now retry the original task prompt (Standard retry format)
                     retry_prompt = self.build_retry_prompt(task.prompt, task.error_output or "")
-                    success, output, rate_limit_reset = self.run_claude(retry_prompt, project_dir)
+                    success, output, rate_limit_reset = await self.run_claude(retry_prompt, project_dir)
                 else:
                     # Level 1: Direct retry with error context
                     retry_prompt = self.build_retry_prompt(task.prompt, task.error_output or "")
-                    success, output, rate_limit_reset = self.run_claude(retry_prompt, project_dir)
+                    success, output, rate_limit_reset = await self.run_claude(retry_prompt, project_dir)
             else:
                 # Level 3: Clean retry with existing files context
                 existing_files = []
@@ -234,7 +234,7 @@ class BuildOrchestrator:
                 
                 clean_prompt = self.build_clean_retry_prompt(task.prompt, task.error_output or "", existing_files)
                 await self.log(project_id, "INFO", "orchestrator", "Level 3 Clean Retry: Instructing model to rewrite failing parts...")
-                success, output, rate_limit_reset = self.run_claude(clean_prompt, project_dir)
+                success, output, rate_limit_reset = await self.run_claude(clean_prompt, project_dir)
 
             task.claude_output = (task.claude_output or "") + f"\n\n=== RETRY {task.retry_count} OUTPUT ===\n\n" + output
 
@@ -343,14 +343,15 @@ Existing files that may be relevant: {files_str}"""
 
         asyncio.create_task(run_in_background())
 
-    def run_claude(self, prompt: str, project_dir: str) -> tuple[bool, str, datetime | None]:
+    async def run_claude(self, prompt: str, project_dir: str) -> tuple[bool, str, datetime | None]:
         """
         Run claude -p via ClaudeService.run_prompt.
         """
         import os
+        import asyncio
         from app.services.claude_service import ClaudeService
         os.makedirs(project_dir, exist_ok=True)
-        result = ClaudeService.run_prompt(prompt, cwd=project_dir)
+        result = await asyncio.to_thread(ClaudeService.run_prompt, prompt, cwd=project_dir)
         return result["success"], result["output"], result["rate_limit_reset"]
 
     def run_tests(self, test_command: str, project_dir: str) -> tuple[int, int, str]:

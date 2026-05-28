@@ -208,6 +208,7 @@ class DocGenerationService:
             existing_doc.title = title
             await self.db.commit()
             await self.db.refresh(existing_doc)
+            self._write_doc_to_disk(project, existing_doc)
             return existing_doc
         else:
             new_doc = Document(
@@ -221,7 +222,22 @@ class DocGenerationService:
             self.db.add(new_doc)
             await self.db.commit()
             await self.db.refresh(new_doc)
+            self._write_doc_to_disk(project, new_doc)
             return new_doc
+
+    def _write_doc_to_disk(self, project: Project, doc: Document):
+        try:
+            import os
+            from app.services.project_dir_service import ProjectDirService
+            project_dir = ProjectDirService.get_project_dir(str(project.id), project.name)
+            docs_dir = os.path.join(project_dir, "docs")
+            os.makedirs(docs_dir, exist_ok=True)
+            filename = f"{doc.doc_type}.md"
+            filepath = os.path.join(docs_dir, filename)
+            with open(filepath, "w", encoding="utf-8") as f:
+                f.write(doc.content)
+        except Exception as e:
+            logger.error(f"Failed to write document {doc.doc_type} to disk: {e}")
 
     async def generate_document(self, project_id: UUID, doc_type: str, user_id: UUID) -> Document:
         """Generate a single document type"""

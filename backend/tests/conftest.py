@@ -134,6 +134,53 @@ def mock_gemini():
     with patch("app.ai.provider.GeminiProvider.generate", new_callable=AsyncMock) as mock:
         yield mock
 
+@pytest.fixture(autouse=True)
+def mock_claude():
+    from unittest.mock import patch
+    import json
+    
+    mock_sprints = {
+        "sprints": [
+            {
+                "sprint_number": 1, "name": "Foundation",
+                "description": "Project setup and scaffolding",
+                "tasks": [
+                    {"task_number": 1, "name": "Project scaffold",
+                     "prompt": "Create a new project in an empty directory. Initialize with package.json for frontend (React 18 + TypeScript + Vite) and requirements.txt for backend (FastAPI + SQLAlchemy + PostgreSQL). Create directory structure: backend/app/, frontend/src/, backend/tests/, frontend/src/__tests__/. Create backend/app/main.py with FastAPI app and GET /health endpoint returning {status: healthy}. Create backend/tests/test_health.py with test for health endpoint. Run: cd backend && python -m pytest tests/test_health.py -v",
+                     "test_command": "cd backend && python -m pytest tests/test_health.py -v",
+                     "expected_test_count": 2},
+                    {"task_number": 2, "name": "Database models",
+                     "prompt": "The project has FastAPI in backend/app/main.py. Create SQLAlchemy models in backend/app/models/user.py with User model (id, email, name, created_at). Create backend/app/core/database.py with async engine setup. Create backend/tests/test_models.py with model tests. Run: cd backend && python -m pytest tests/test_models.py -v",
+                     "test_command": "cd backend && python -m pytest tests/test_models.py -v",
+                     "expected_test_count": 4}
+                ]
+            },
+            {
+                "sprint_number": 2, "name": "Core Features",
+                "description": "Main application features",
+                "tasks": [
+                    {"task_number": 1, "name": "API endpoints",
+                     "prompt": "The project has FastAPI in backend/app/main.py and User model in backend/app/models/user.py. Create REST endpoints in backend/app/api/v1/users.py: POST /users (create), GET /users (list), GET /users/{id} (detail). Create backend/tests/test_users.py with 6 tests. Run: cd backend && python -m pytest tests/test_users.py -v",
+                     "test_command": "cd backend && python -m pytest tests/test_users.py -v",
+                     "expected_test_count": 6}
+                ]
+            }
+        ],
+        "total_tasks": 3, "total_sprints": 2, "estimated_total_tests": 12
+    }
+    
+    with patch("app.services.claude_service.ClaudeService.run_prompt") as mock:
+        mock.return_value = {
+            "success": True,
+            "output": json.dumps(mock_sprints),
+            "error": None,
+            "is_rate_limited": False,
+            "rate_limit_reset": None,
+            "exit_code": 0,
+            "duration_seconds": 1.0
+        }
+        yield mock
+
 @pytest.fixture
 async def cache_service():
     from app.core.cache import CacheService
