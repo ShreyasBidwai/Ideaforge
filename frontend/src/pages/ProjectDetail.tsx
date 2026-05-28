@@ -30,8 +30,9 @@ import { useRunStore } from "../stores/runStore";
 import SetupGate from "../components/run/SetupGate";
 import RunPanel from "../components/run/RunPanel";
 import RunLogs from "../components/run/RunLogs";
+import E2EPanel from "../components/e2e/E2EPanel";
 
-type Tab = "overview" | "documents" | "build" | "setup" | "code" | "run";
+type Tab = "overview" | "documents" | "build" | "setup" | "code" | "run" | "testing";
 
 export default function ProjectDetail() {
   const { projectId } = useParams<{ projectId: string }>();
@@ -43,6 +44,7 @@ export default function ProjectDetail() {
   const [isRegeneratingDoc, setIsRegeneratingDoc] = useState<string | null>(null);
   const [editingDocId, setEditingDocId] = useState<string | null>(null);
   const [expandedDocs, setExpandedDocs] = useState<Record<string, boolean>>({});
+  const [e2eTests, setE2ETests] = useState<any[]>([]);
 
   const {
     project,
@@ -69,6 +71,34 @@ export default function ProjectDetail() {
     if (!projectId) return;
     runStore.fetchManifest(projectId);
   }, [projectId, runStore.fetchManifest]);
+
+  useEffect(() => {
+    if (!projectId || activeTab !== "testing") return;
+    apiClient.get(`/api/v1/projects/${projectId}/e2e`)
+      .then((res) => setE2ETests(res.data || []))
+      .catch(console.error);
+  }, [projectId, activeTab]);
+
+  const handleGenerateE2ETests = async () => {
+    if (!projectId) return;
+    try {
+      const res = await apiClient.post(`/api/v1/projects/${projectId}/e2e/generate`);
+      setE2ETests(res.data || []);
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const handleRunE2ETests = async () => {
+    if (!projectId) return;
+    try {
+      await apiClient.post(`/api/v1/projects/${projectId}/e2e/run`);
+      const res = await apiClient.get(`/api/v1/projects/${projectId}/e2e`);
+      setE2ETests(res.data || []);
+    } catch (e) {
+      console.error(e);
+    }
+  };
 
   useEffect(() => {
     if (!projectId) return;
@@ -369,6 +399,16 @@ export default function ProjectDetail() {
           }`}
         >
           Run
+        </button>
+        <button
+          onClick={() => setActiveTab("testing")}
+          className={`px-4 py-2 text-sm font-semibold font-mono border-b-2 transition-all ${
+            activeTab === "testing"
+              ? "border-blue-500 text-blue-400"
+              : "border-transparent text-slate-400 hover:text-slate-200"
+          }`}
+        >
+          Testing
         </button>
         {project.status === "complete" && (
           <button
@@ -802,6 +842,17 @@ export default function ProjectDetail() {
                 frontendLogs={runStore.frontendLogs}
               />
             )}
+          </div>
+        )}
+
+        {activeTab === "testing" && (
+          <div className="space-y-6">
+            <E2EPanel
+              tests={e2eTests}
+              runStatus={runStore.runStatus}
+              onGenerate={handleGenerateE2ETests}
+              onRun={handleRunE2ETests}
+            />
           </div>
         )}
       </div>

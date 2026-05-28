@@ -66,4 +66,9 @@ class Project(Base):
         back_populates="project",
         cascade="all, delete-orphan",
     )
+    e2e_tests = relationship(
+        "E2ETest",
+        back_populates="project",
+        cascade="all, delete-orphan",
+    )
 

@@ -805,6 +805,99 @@ async def get_setup_manifest_ready(
     return {"ready": ready}
 
 
+@router.post("/projects/{id}/e2e/generate")
+async def generate_e2e(
+    id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    stmt = select(Project).where(Project.id == id, Project.user_id == current_user.id)
+    res = await db.execute(stmt)
+    project = res.scalars().first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    from app.services.e2e_service import E2EService
+    svc = E2EService(db)
+    tests = await svc.generate_e2e_tests(id, current_user.id)
+    return tests
+
+
+@router.get("/projects/{id}/e2e")
+async def list_e2e(
+    id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    stmt = select(Project).where(Project.id == id, Project.user_id == current_user.id)
+    res = await db.execute(stmt)
+    project = res.scalars().first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    from app.models.e2e_suite import E2ETest
+    stmt_tests = select(E2ETest).where(E2ETest.project_id == id).order_by(E2ETest.created_at.asc())
+    res_tests = await db.execute(stmt_tests)
+    return res_tests.scalars().all()
+
+
+@router.post("/projects/{id}/e2e/run")
+async def run_e2e(
+    id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    stmt = select(Project).where(Project.id == id, Project.user_id == current_user.id)
+    res = await db.execute(stmt)
+    project = res.scalars().first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    from app.services.project_runner import ProjectRunner
+    run_status = ProjectRunner.status(id)
+    if run_status.get("status") != "running":
+        raise HTTPException(status_code=409, detail="Project is not running. Please start the project first.")
+
+    base_url = run_status.get("backend_url")
+    if not base_url:
+        base_url = run_status.get("frontend_url") or "http://localhost:8100"
+
+    from app.services.e2e_service import E2EService
+    svc = E2EService(db)
+    results = await svc.run_e2e_tests(id, base_url)
+    return results
+
+
+@router.get("/projects/{id}/e2e/results")
+async def get_e2e_results(
+    id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    stmt = select(Project).where(Project.id == id, Project.user_id == current_user.id)
+    res = await db.execute(stmt)
+    project = res.scalars().first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    from app.models.e2e_suite import E2ETest
+    stmt_tests = select(E2ETest).where(E2ETest.project_id == id)
+    res_tests = await db.execute(stmt_tests)
+    tests = res_tests.scalars().all()
+
+    passed = sum(1 for t in tests if t.status == "passed")
+    failed = sum(1 for t in tests if t.status == "failed")
+    total = len(tests)
+
+    return {
+        "passed": passed,
+        "failed": failed,
+        "total": total,
+        "tests": tests
+    }
+
+
+
 
 
 
