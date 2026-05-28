@@ -695,6 +695,117 @@ async def update_project_settings(
     return project
 
 
+from app.services.setup_manifest_service import SetupManifestService
+from pydantic import BaseModel
+
+class EnvValuePayload(BaseModel):
+    value: str
+
+class SetupStepPatch(BaseModel):
+    is_completed: bool
+
+@router.post("/projects/{id}/setup-manifest/generate")
+async def generate_setup_manifest(
+    id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    stmt = select(Project).where(Project.id == id, Project.user_id == current_user.id)
+    res = await db.execute(stmt)
+    project = res.scalars().first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    svc = SetupManifestService(db)
+    steps = await svc.generate_manifest(id)
+    return steps
+
+@router.get("/projects/{id}/setup-manifest")
+async def get_setup_manifest(
+    id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    stmt = select(Project).where(Project.id == id, Project.user_id == current_user.id)
+    res = await db.execute(stmt)
+    project = res.scalars().first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    svc = SetupManifestService(db)
+    steps = await svc.get_manifest(id)
+    return steps
+
+@router.patch("/projects/{id}/setup-steps/{step_id}")
+async def patch_setup_step(
+    id: UUID,
+    step_id: UUID,
+    payload: SetupStepPatch,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    stmt = select(Project).where(Project.id == id, Project.user_id == current_user.id)
+    res = await db.execute(stmt)
+    project = res.scalars().first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    svc = SetupManifestService(db)
+    try:
+        step = await svc.mark_step(step_id, payload.is_completed)
+        return step
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+@router.post("/projects/{id}/setup-steps/{step_id}/value")
+async def write_setup_step_value(
+    id: UUID,
+    step_id: UUID,
+    payload: EnvValuePayload,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    stmt = select(Project).where(Project.id == id, Project.user_id == current_user.id)
+    res = await db.execute(stmt)
+    project = res.scalars().first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    from app.models.setup_step import SetupStep
+    step_stmt = select(SetupStep).where(SetupStep.id == step_id, SetupStep.project_id == id)
+    step_res = await db.execute(step_stmt)
+    step = step_res.scalars().first()
+    if not step:
+        raise HTTPException(status_code=404, detail="Setup step not found")
+
+    if not step.env_key:
+        raise HTTPException(status_code=400, detail="Setup step does not represent an environment variable")
+
+    svc = SetupManifestService(db)
+    success = await svc.write_env_value(id, step.env_key, payload.value)
+    if not success:
+        raise HTTPException(status_code=400, detail="Failed to write environment variable value")
+    
+    return {"success": True}
+
+@router.get("/projects/{id}/setup-manifest/ready")
+async def get_setup_manifest_ready(
+    id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    stmt = select(Project).where(Project.id == id, Project.user_id == current_user.id)
+    res = await db.execute(stmt)
+    project = res.scalars().first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    svc = SetupManifestService(db)
+    ready = await svc.all_required_complete(id)
+    return {"ready": ready}
+
+
+
 
 
 

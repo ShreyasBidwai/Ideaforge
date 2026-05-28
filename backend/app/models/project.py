@@ -61,3 +61,9 @@ class Project(Base):
         back_populates="project",
         cascade="all, delete-orphan",
     )
+    setup_steps = relationship(
+        "SetupStep",
+        back_populates="project",
+        cascade="all, delete-orphan",
+    )
+

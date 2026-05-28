@@ -68,10 +68,13 @@ def event_loop():
 
 @pytest.fixture(scope="session", autouse=True)
 async def setup_test_database_columns(event_loop):
-    from app.core.database import engine
+    from app.core.database import engine, Base
+    from app.models.setup_step import SetupStep  # Ensure registered in metadata
     async with engine.begin() as conn:
         await conn.execute(text("ALTER TABLE projects ADD COLUMN IF NOT EXISTS pause_on_failure BOOLEAN DEFAULT FALSE;"))
+        await conn.run_sync(Base.metadata.create_all)
     await engine.dispose()
+
 
 
 @pytest.fixture

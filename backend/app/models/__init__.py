@@ -9,6 +9,7 @@ from app.models.document import Document
 from app.models.sprint import Sprint
 from app.models.sprint_task import SprintTask
 from app.models.build_log import BuildLog
+from app.models.setup_step import SetupStep
 
 __all__ = [
     "Base",
@@ -22,4 +23,6 @@ __all__ = [
     "Sprint",
     "SprintTask",
     "BuildLog",
+    "SetupStep",
 ]
+
