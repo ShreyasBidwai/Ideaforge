@@ -161,3 +161,29 @@ async def test_prompt_requests_scaffold_first(client, auth_headers, mock_gemini)
     # Find the prompt that was sent to generate sprints
     sprint_prompt = next((p for p in prompts_captured if "sprints" in p.lower() or "sprint" in p.lower()), "")
     assert "scaffold" in sprint_prompt.lower() or "empty directory" in sprint_prompt.lower() or "sprint 1, task 1" in sprint_prompt.lower()
+
+# TEST 7: Database and runnable on localhost directives in sprint/roadmap prompts
+def test_sprint_generation_prompts_db_and_localhost_directives():
+    """Verify database and runnable on localhost directives in sprint/roadmap prompt generation."""
+    from app.services.sprint_generation_service import SprintGenerationService
+    from app.models.project import Project
+    
+    project = Project(
+        maturity_level="mvp",
+        documents=[]
+    )
+    context = {
+        "solution": {"title": "App", "tech_stack": ["Python"]},
+        "session": {"industry": "Health", "location": "US", "maturity_level": "mvp"}
+    }
+    
+    service = SprintGenerationService(db=None)
+    roadmap_prompt = service._build_roadmap_prompt(project, context)
+    assert "SQLite" in roadmap_prompt
+    assert "app.db" in roadmap_prompt
+
+    task_prompt = service._build_task_detail_prompt(
+        project, context, {"sprints": []}, 1, 1, "Task", "Desc"
+    )
+    assert "SQLite" in task_prompt
+    assert "RUNNABLE ON LOCALHOST DIRECTIVE" in task_prompt

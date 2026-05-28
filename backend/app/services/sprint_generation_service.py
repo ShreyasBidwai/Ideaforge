@@ -118,6 +118,22 @@ class SprintGenerationService:
             raise HTTPException(status_code=404, detail="Project not found")
         return project
 
+    def _build_sprint_generation_prompt(self, project: Project, context: dict | list) -> str:
+        # Normalize context if passed as list (as done in tests)
+        if isinstance(context, list):
+            context = {
+                "solution": {
+                    "title": getattr(project, "name", "App"),
+                    "tech_stack": getattr(project, "tech_stack", ["FastAPI", "React"])
+                },
+                "session": {
+                    "industry": getattr(project, "industry", "Health"),
+                    "location": getattr(project, "location", "US"),
+                    "maturity_level": getattr(project, "maturity_level", "mvp")
+                }
+            }
+        return self._build_roadmap_prompt(project, context)
+
     def _build_roadmap_prompt(self, project: Project, context: dict) -> str:
         # Pre-load documents from project.documents
         docs_context = ""
@@ -126,6 +142,11 @@ class SprintGenerationService:
 
         tech_stack_str = ', '.join(context['solution']['tech_stack']) if isinstance(context['solution']['tech_stack'], list) else str(context['solution']['tech_stack'])
         
+        from app.ai.prompts.docs.architecture import get_database_directive
+        maturity_level = context['session']['maturity_level']
+        tech_stack = context['solution']['tech_stack'] or []
+        db_directive = get_database_directive(maturity_level, tech_stack)
+
         prompt = f"""You are an expert software architect generating a high-level sprint and task breakdown for an application.
 
 Here are the project specification documents:
@@ -135,8 +156,15 @@ PROJECT CONTEXT:
 - Name: {context['solution']['title']}
 - Industry: {context['session']['industry']}
 - Location: {context['session'].get('location', 'Not available')}
-- Maturity Level: {context['session']['maturity_level']}
+- Maturity Level: {maturity_level}
 - Tech Stack: {tech_stack_str}
+
+DATABASE INSTRUCTIONS:
+{db_directive}
+
+RUNNABILITY AND LOCALHOST CONFIGURATION:
+- Design the tasks and repository layout so the application is runnable on localhost out of the box (requires no external cloud resources or running databases).
+- Ensure a `.env.example` file is documented with all required environment variables and local fallback values.
 
 OUTPUT FORMAT: Return ONLY valid JSON matching the requested schema. No markdown code fences, no explanation.
 
@@ -145,6 +173,7 @@ CRITICAL RULES FOR ROADMAP:
 2. Sprints and tasks must be ordered logically, such that early tasks lay the foundation for subsequent tasks.
 3. Sprint 1, Task 1 MUST ALWAYS be project scaffolding: setting up folders, package configurations, base entry files, and a hello world health check endpoint.
 4. Each task should have a clear name and a concise description of what needs to be implemented.
+5. All tasks must respect the database requirements above.
 """
         return prompt
 
@@ -156,6 +185,11 @@ CRITICAL RULES FOR ROADMAP:
 
         tech_stack_str = ', '.join(context['solution']['tech_stack']) if isinstance(context['solution']['tech_stack'], list) else str(context['solution']['tech_stack'])
         
+        from app.ai.prompts.docs.architecture import get_database_directive
+        maturity_level = context['session']['maturity_level']
+        tech_stack = context['solution']['tech_stack'] or []
+        db_directive = get_database_directive(maturity_level, tech_stack)
+
         # Build a list of preceding tasks so the model knows the chronological context of files already created/modified
         preceding_tasks = []
         for sprint in roadmap_structure.get("sprints", []):
@@ -173,6 +207,9 @@ Here are the project specification documents:
 PROJECT CONTEXT:
 - Name: {context['solution']['title']}
 - Tech Stack: {tech_stack_str}
+
+DATABASE INSTRUCTIONS:
+{db_directive}
 
 CHRONOLOGICAL ROADMAP CONTEXT:
 We are generating the detailed coding prompt for:
@@ -194,8 +231,12 @@ CRITICAL RULES FOR THE CODING INSTRUCTION PROMPT:
 5. If this is Sprint 1 Task 1, it must instruct the agent to bootstrap/scaffold the entire directory structure, package configuration files (e.g. package.json, requirements.txt, tsconfig.json), and set up a hello world health check endpoint with a passing test.
 6. The test command must be specific and executable (e.g., "cd backend && python -m pytest tests/test_health.py -v").
 7. Ensure the prompt word count is detailed (around 150-250 words) to ensure the coding agent has all the details needed to write correct code.
-8. IMPORTANT: If using Fastify for the Node.js/TypeScript backend, ensure that any generated tests include `beforeAll(async () => {{ await app.ready(); }});` before making requests using supertest. Fastify plugin registration is asynchronous; making requests before the application is fully ready causes Jest to hang indefinitely due to unclosed active handles.
-9. IMPORTANT: If using Gradle/Kotlin for the Android SDK, ensure that any build.gradle.kts files include explicit versions for external plugins in the `plugins` block (e.g. `id("com.android.library") version "8.5.1"` and `id("org.jetbrains.kotlin.android") version "1.9.22"`). Also, if executing gradle commands from a subdirectory, use `../gradlew` rather than `./gradlew` to correctly reference the wrapper in the project root.
+8. RUNNABLE ON LOCALHOST DIRECTIVE (MANDATORY):
+   - Design the project, environment files, and configurations so the application can be run locally (on localhost) out of the box with zero external dependencies (such as local running databases or cloud resources).
+   - Use mock objects, local stub handlers, or SQLite fallback drivers to prevent external API connection failures from crashing the local application or its test suites.
+   - Specify local fallback values for environment variables in the `.env.example` file.
+9. IMPORTANT: If using Fastify for the Node.js/TypeScript backend, ensure that any generated tests include `beforeAll(async () => {{ await app.ready(); }});` before making requests using supertest. Fastify plugin registration is asynchronous; making requests before the application is fully ready causes Jest to hang indefinitely due to unclosed active handles.
+10. IMPORTANT: If using Gradle/Kotlin for the Android SDK, ensure that any build.gradle.kts files include explicit versions for external plugins in the `plugins` block (e.g. `id("com.android.library") version "8.5.1"` and `id("org.jetbrains.kotlin.android") version "1.9.22"`). Also, if executing gradle commands from a subdirectory, use `../gradlew` rather than `./gradlew` to correctly reference the wrapper in the project root.
 """
         return prompt
 

@@ -112,3 +112,34 @@ def test_all_prompt_templates_exist():
     from app.ai.prompts.docs.sprint_plan import build_sprint_plan_prompt
     from app.ai.prompts.docs.engineering import build_engineering_prompt
     assert all([build_architecture_prompt, build_prd_prompt, build_trd_prompt, build_sprint_plan_prompt, build_engineering_prompt])
+
+# TEST 9: SQLite and PostgreSQL database directives based on maturity level
+def test_doc_generation_sqlite_directives():
+    """Verify that architecture and TRD prompt templates include SQLite database directives for POC/MVP levels."""
+    from app.ai.prompts.docs.architecture import build_architecture_prompt
+    from app.ai.prompts.docs.trd import build_trd_prompt
+
+    # For MVP: Should have SQLite requirement
+    context_mvp = {
+        "solution": {"title": "App", "description": "D", "mechanism": "M", "tech_stack": ["Python"], "target_user": "U", "revenue_model": "R"},
+        "problem": {"title": "P", "description": "D"},
+        "session": {"industry": "Health", "location": "US", "maturity_level": "mvp"},
+    }
+    sys_arch_mvp, user_arch_mvp = build_architecture_prompt(context_mvp)
+    assert "SQLite" in sys_arch_mvp
+    assert "SQLite" in user_arch_mvp
+
+    sys_trd_mvp, user_trd_mvp = build_trd_prompt(context_mvp)
+    assert "SQLite" in sys_trd_mvp
+    assert "SQLite" in user_trd_mvp
+
+    # For Production: Should have PostgreSQL requirement
+    context_prod = {
+        "solution": {"title": "App", "description": "D", "mechanism": "M", "tech_stack": ["Python"], "target_user": "U", "revenue_model": "R"},
+        "problem": {"title": "P", "description": "D"},
+        "session": {"industry": "Health", "location": "US", "maturity_level": "production"},
+    }
+    sys_arch_prod, user_arch_prod = build_architecture_prompt(context_prod)
+    assert "PostgreSQL" in sys_arch_prod
+    assert "PostgreSQL" in user_arch_prod
+
