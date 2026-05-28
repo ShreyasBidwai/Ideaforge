@@ -73,3 +73,46 @@ it('should render pause and cancel buttons', async () => {
   expect(screen.getByText(/pause/i)).toBeDefined();
   expect(screen.getByText(/cancel/i)).toBeDefined();
 });
+
+// TEST 9: Build dashboard renders policy settings and toggles pause_on_failure setting
+it('should render build policy toggle and handle check/uncheck', async () => {
+  const { default: BuildDashboard } = await import('../pages/BuildDashboard');
+  const { useBuildStore } = await import('../stores/buildStore');
+  
+  // Set up mock project in buildStore
+  useBuildStore.setState({
+    project: {
+      id: 'test',
+      user_id: 'user',
+      solution_id: 'sol',
+      name: 'Test Project',
+      description: null,
+      industry: 'Tech',
+      location: 'IN',
+      maturity_level: 'mvp',
+      tech_stack: null,
+      status: 'building',
+      project_dir: null,
+      pause_on_failure: false,
+      created_at: '',
+      updated_at: '',
+    },
+    sprints: [],
+    logs: [],
+    status: 'building',
+    stats: { completedTasks: 0, totalTasks: 0, testsPassing: 0, eta: '' },
+    rateLimitInfo: null,
+  });
+
+  render(
+    <MemoryRouter initialEntries={['/projects/test/build']}>
+      <Routes>
+        <Route path="/projects/:projectId/build" element={<BuildDashboard />} />
+      </Routes>
+    </MemoryRouter>
+  );
+
+  const toggle = document.getElementById('pause-on-failure-toggle') as HTMLInputElement;
+  expect(toggle).toBeDefined();
+  expect(toggle.checked).toBe(false);
+});

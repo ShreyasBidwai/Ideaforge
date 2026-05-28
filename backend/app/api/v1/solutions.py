@@ -9,7 +9,8 @@ from app.models import User
 from app.schemas.solution import (
     SolutionResponse,
     SolutionStatusUpdate,
-    SolutionUpdate
+    SolutionUpdate,
+    TechStackRecommendationResponse
 )
 from app.services.solution_service import SolutionService
 from app.ai.provider import get_ai_provider, AIProvider
@@ -119,3 +120,17 @@ async def revoke_solution(
     service = SolutionService(None, db)
     solution = await service.update_solution_status(id, current_user.id, "evaluated")
     return solution
+
+
+@router.get("/solutions/{id}/recommend-tech-stack", response_model=TechStackRecommendationResponse)
+async def recommend_tech_stack(
+    id: UUID,
+    project_type: str = "fullstack",
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+    ai_provider: AIProvider = Depends(get_ai_provider)
+):
+    service = SolutionService(ai_provider, db)
+    recommendation = await service.recommend_tech_stack(id, current_user.id, project_type)
+    return recommendation
+

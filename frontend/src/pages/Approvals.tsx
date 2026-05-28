@@ -51,6 +51,14 @@ const Approvals: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [isBuildingId, setIsBuildingId] = useState<string | null>(null);
 
+  // Tech Stack Modal Configuration States
+  const [activeSolutionForModal, setActiveSolutionForModal] = useState<ApprovedSolution | null>(null);
+  const [projectType, setProjectType] = useState<"backend_only" | "fullstack">("fullstack");
+  const [selectedTags, setSelectedTags] = useState<string[]>([]);
+  const [recommendationExplanation, setRecommendationExplanation] = useState<string>("");
+  const [isRecommending, setIsRecommending] = useState(false);
+  const [newTagInput, setNewTagInput] = useState("");
+
   const fetchApprovals = async () => {
     setIsLoading(true);
     setError(null);
@@ -77,11 +85,50 @@ const Approvals: React.FC = () => {
     }
   };
 
-  const handleBuildApp = async (id: string) => {
-    setIsBuildingId(id);
+  const handleOpenConfigModal = async (sol: ApprovedSolution) => {
+    setActiveSolutionForModal(sol);
+    setProjectType("fullstack");
+    setRecommendationExplanation("");
+    setSelectedTags(sol.tech_stack || []);
+    setIsRecommending(true);
+    
     try {
-      const res = await apiClient.post(`/api/v1/solutions/${id}/create-project`);
+      const res = await apiClient.get(`/api/v1/solutions/${sol.id}/recommend-tech-stack?project_type=fullstack`);
+      setSelectedTags(res.data.recommended_stack || []);
+      setRecommendationExplanation(res.data.explanation || "");
+    } catch (err) {
+      console.error("Failed to load tech stack recommendations:", err);
+      addToast("error", "Failed to load AI recommendations. Falling back to default.");
+    } finally {
+      setIsRecommending(false);
+    }
+  };
+
+  const handleProjectTypeChange = async (type: "backend_only" | "fullstack") => {
+    if (!activeSolutionForModal) return;
+    setProjectType(type);
+    setIsRecommending(true);
+    try {
+      const res = await apiClient.get(`/api/v1/solutions/${activeSolutionForModal.id}/recommend-tech-stack?project_type=${type}`);
+      setSelectedTags(res.data.recommended_stack || []);
+      setRecommendationExplanation(res.data.explanation || "");
+    } catch (err) {
+      console.error("Failed to load tech stack recommendations:", err);
+      addToast("error", "Failed to load AI recommendations.");
+    } finally {
+      setIsRecommending(false);
+    }
+  };
+
+  const handleBuildApp = async () => {
+    if (!activeSolutionForModal) return;
+    setIsBuildingId(activeSolutionForModal.id);
+    try {
+      const res = await apiClient.post(`/api/v1/solutions/${activeSolutionForModal.id}/create-project`, {
+        tech_stack: selectedTags
+      });
       addToast("success", "Project created successfully");
+      setActiveSolutionForModal(null);
       navigate(`/projects/${res.data.id}`);
     } catch (err) {
       console.error("Failed to create project:", err);
@@ -317,11 +364,11 @@ const Approvals: React.FC = () => {
                     </button>
                   ) : (
                     <button
-                      onClick={() => handleBuildApp(sol.id)}
-                      disabled={isBuildingId === sol.id}
+                      onClick={() => handleOpenConfigModal(sol)}
+                      disabled={isBuildingId !== null}
                       className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-semibold border border-blue-500/10 transition-all flex items-center gap-1.5"
                     >
-                      <span>{isBuildingId === sol.id ? "Creating..." : "Build App"}</span>
+                      <span>Build App</span>
                     </button>
                   )}
 
@@ -337,6 +384,164 @@ const Approvals: React.FC = () => {
           </AnimatePresence>
         </div>
       )}
+
+      {/* Tech Stack Customizer Modal */}
+      <AnimatePresence>
+        {activeSolutionForModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              transition={{ duration: 0.2 }}
+              className="bg-slate-900 border border-white/10 rounded-2xl w-full max-w-lg p-6 shadow-2xl space-y-6 relative overflow-hidden text-white"
+            >
+              {/* Title */}
+              <div className="space-y-1.5 border-b border-white/5 pb-4">
+                <h3 className="text-lg font-bold flex items-center gap-2">
+                  <Sparkles className="w-5 h-5 text-indigo-400" />
+                  Configure Tech Stack
+                </h3>
+                <p className="text-slate-400 text-xs leading-normal">
+                  Customize the languages, databases, and frameworks for <span className="text-white font-medium">{activeSolutionForModal.title}</span>.
+                </p>
+              </div>
+
+              {/* Project Type Selector */}
+              <div className="space-y-2">
+                <label className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block">
+                  Project Target Architecture
+                </label>
+                <div className="grid grid-cols-2 gap-3">
+                  <button
+                    type="button"
+                    onClick={() => handleProjectTypeChange("backend_only")}
+                    className={`p-3 rounded-xl border text-left transition-all ${
+                      projectType === "backend_only"
+                        ? "bg-indigo-600/10 border-indigo-500 text-white"
+                        : "bg-slate-950/40 border-white/5 text-slate-400 hover:border-white/10 hover:text-white"
+                    }`}
+                  >
+                    <div className="text-xs font-bold mb-0.5">Backend Only</div>
+                    <div className="text-[10px] opacity-70 leading-normal">Clean APIs, background processes & databases.</div>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleProjectTypeChange("fullstack")}
+                    className={`p-3 rounded-xl border text-left transition-all ${
+                      projectType === "fullstack"
+                        ? "bg-indigo-600/10 border-indigo-500 text-white"
+                        : "bg-slate-950/40 border-white/5 text-slate-400 hover:border-white/10 hover:text-white"
+                    }`}
+                  >
+                    <div className="text-xs font-bold mb-0.5">Fullstack App</div>
+                    <div className="text-[10px] opacity-70 leading-normal">Includes React client dashboard & layouts.</div>
+                  </button>
+                </div>
+              </div>
+
+              {/* AI Rationale */}
+              <div className="space-y-2">
+                <label className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block">
+                  AI Rationale & Strategy
+                </label>
+                <div className="bg-slate-950/40 border border-white/5 rounded-xl p-3 min-h-[80px] flex items-center justify-center">
+                  {isRecommending ? (
+                    <div className="flex flex-col items-center gap-2 text-xs text-slate-400">
+                      <LoadingSpinner size="sm" variant="inline" />
+                      <span>Fetching recommendations...</span>
+                    </div>
+                  ) : (
+                    <p className="text-xs text-slate-300 leading-relaxed w-full">
+                      {recommendationExplanation || "No explanation provided."}
+                    </p>
+                  )}
+                </div>
+              </div>
+
+              {/* Selected Tech Tags */}
+              <div className="space-y-2">
+                <label className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block">
+                  Finalized Tech Stack Tags
+                </label>
+                <div className="flex flex-wrap gap-2 max-h-[100px] overflow-y-auto bg-slate-950/30 p-2.5 border border-white/5 rounded-xl">
+                  {selectedTags.map((tag) => (
+                    <span
+                      key={tag}
+                      className="bg-indigo-500/10 text-indigo-300 border border-indigo-500/20 text-[10px] font-bold px-2 py-0.5 rounded-md flex items-center gap-1.5"
+                    >
+                      <span>{tag}</span>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedTags((prev) => prev.filter((t) => t !== tag))}
+                        className="hover:text-white font-black text-xs text-indigo-400/70"
+                      >
+                        ×
+                      </button>
+                    </span>
+                  ))}
+                  {selectedTags.length === 0 && (
+                    <span className="text-[10px] text-slate-500 italic">No technologies selected yet.</span>
+                  )}
+                </div>
+              </div>
+
+              {/* Add Custom Tag */}
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  value={newTagInput}
+                  onChange={(e) => setNewTagInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && newTagInput.trim()) {
+                      e.preventDefault();
+                      if (!selectedTags.includes(newTagInput.trim())) {
+                        setSelectedTags((prev) => [...prev, newTagInput.trim()]);
+                      }
+                      setNewTagInput("");
+                    }
+                  }}
+                  placeholder="Add custom technology (e.g. Redis, Docker)..."
+                  className="bg-slate-950/40 border border-white/5 rounded-xl px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-white/20 flex-1"
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (newTagInput.trim()) {
+                      if (!selectedTags.includes(newTagInput.trim())) {
+                        setSelectedTags((prev) => [...prev, newTagInput.trim()]);
+                      }
+                      setNewTagInput("");
+                    }
+                  }}
+                  className="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-white border border-white/5 rounded-xl text-xs font-semibold"
+                >
+                  Add
+                </button>
+              </div>
+
+              {/* Footer Buttons */}
+              <div className="flex items-center justify-end gap-3 pt-4 border-t border-white/5">
+                <button
+                  type="button"
+                  onClick={() => setActiveSolutionForModal(null)}
+                  className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-xl text-xs font-semibold border border-white/5 transition-all"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleBuildApp}
+                  disabled={isBuildingId !== null || selectedTags.length === 0}
+                  className="px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white rounded-xl text-xs font-semibold border border-blue-500/10 transition-all flex items-center gap-1.5"
+                >
+                  {isBuildingId ? <LoadingSpinner size="sm" variant="inline" /> : "Confirm & Create"}
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
       </div>
     </ErrorBoundary>
   );

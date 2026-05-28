@@ -71,3 +71,9 @@ class SolutionUpdate(BaseModel):
     target_user: str | None = None
     revenue_model: str | None = None
 
+
+class TechStackRecommendationResponse(BaseModel):
+    recommended_stack: list[str]
+    explanation: str
+
+

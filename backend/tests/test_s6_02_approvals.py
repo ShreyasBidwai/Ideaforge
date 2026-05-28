@@ -69,3 +69,42 @@ async def test_approvals_require_auth(client):
     """Approvals endpoint should require authentication"""
     response = await client.get("/api/v1/approvals")
     assert response.status_code in [401, 403]
+
+
+# TEST 6: Tech stack recommendation
+async def test_recommend_tech_stack(client, auth_headers, mock_gemini):
+    """GET /solutions/{id}/recommend-tech-stack should return AI recommendations"""
+    sol_id = await create_approved_solution(client, auth_headers, mock_gemini)
+    
+    # Mock AI response for recommendation
+    mock_gemini.return_value = json.dumps({
+        "recommended_stack": ["React", "FastAPI", "PostgreSQL"],
+        "explanation": "This fits the medical app criteria perfectly."
+    })
+    
+    response = await client.get(
+        f"/api/v1/solutions/{sol_id}/recommend-tech-stack?project_type=fullstack",
+        headers=auth_headers
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert "recommended_stack" in data
+    assert "explanation" in data
+    assert data["recommended_stack"] == ["React", "FastAPI", "PostgreSQL"]
+
+
+# TEST 7: Create project with custom tech stack
+async def test_create_project_with_custom_tech_stack(client, auth_headers, mock_gemini):
+    """POST /solutions/{id}/create-project with custom tech stack payload"""
+    sol_id = await create_approved_solution(client, auth_headers, mock_gemini)
+    
+    custom_stack = ["Flask", "React", "MongoDB"]
+    response = await client.post(
+        f"/api/v1/solutions/{sol_id}/create-project",
+        json={"tech_stack": custom_stack},
+        headers=auth_headers
+    )
+    assert response.status_code == 201
+    project_data = response.json()
+    assert project_data["tech_stack"] == custom_stack
+

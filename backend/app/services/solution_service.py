@@ -413,3 +413,54 @@ class SolutionService:
         # 5. Complete
         yield {"status": "complete", "data": complete_data}
 
+    async def recommend_tech_stack(self, solution_id: UUID, user_id: UUID, project_type: str) -> dict:
+        """Call AI provider to recommend a custom tech stack based on project type (backend_only or fullstack)"""
+        sol = await self.get_solution(solution_id, user_id)
+        
+        system_prompt = (
+            "You are an expert software architect recommending a tech stack for an application. "
+            "You must return a valid JSON object matching the requested schema. No conversational wrapper or markdown formatting."
+        )
+        
+        user_prompt = f"""
+Given the following solution details:
+Title: {sol.title}
+Description: {sol.description}
+Core Mechanism: {sol.mechanism}
+Initial Suggested Tech Stack: {sol.tech_stack}
+
+Recommendation request details:
+- Project Type: {project_type} (either 'backend_only' or 'fullstack')
+
+Please recommend a finalized tech stack based on the project type:
+1. If project_type is 'backend_only', recommend ONLY backend/database/infrastructure technologies (e.g. FastAPI, PostgreSQL, TensorFlow, RabbitMQ). Do NOT include any frontend/UI frameworks (no React, HTML, CSS, Tailwind, Vue, Next.js, etc.).
+2. If project_type is 'fullstack', recommend both backend AND frontend/UI components (e.g. React, TailwindCSS, TypeScript, FastAPI, PostgreSQL). Make sure to include modern frontend framework libraries.
+
+Return a JSON object matching this schema:
+{{
+  "recommended_stack": ["Tag1", "Tag2", ...],
+  "explanation": "Detailed explanation here"
+}}
+"""
+        response_schema = {
+            "type": "OBJECT",
+            "properties": {
+                "recommended_stack": {
+                    "type": "ARRAY",
+                    "items": {"type": "STRING"}
+                },
+                "explanation": {"type": "STRING"}
+            },
+            "required": ["recommended_stack", "explanation"]
+        }
+
+        raw_response = await self.ai.generate(
+            prompt=user_prompt,
+            system_prompt=system_prompt,
+            response_schema=response_schema,
+            temperature=0.2
+        )
+        data = json.loads(raw_response)
+        return data
+
+

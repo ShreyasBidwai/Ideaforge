@@ -110,14 +110,51 @@ class BuildOrchestrator:
 
                     await CronService.schedule_resume(project.id, task.rate_limit_reset_at, resume_callback)
                     break
-                # Task failed but we continue to the next task automatically
-                await self.log(project_id, "WARNING", "orchestrator", f"Task {task.name} failed. Continuing to next task...")
-                continue
+                
+                # Check project settings to see if we should pause or continue
+                if getattr(project, "pause_on_failure", False):
+                    project.status = "paused"
+                    task.status = "failed"
+                    await self.db.commit()
+                    await self.log(project_id, "WARNING", "orchestrator", f"Task {task.name} failed and pause_on_failure is enabled. Pausing build.")
+                    break
+                else:
+                    task.status = "failed_skipped"
+                    await self.db.commit()
+                    await self.log(project_id, "WARNING", "orchestrator", f"Task {task.name} failed. Skipping and continuing automatically...")
+                    continue
         else:
-            # Completed all tasks successfully
-            project.status = "complete"
-            await self.db.commit()
-            await self.log(project_id, "INFO", "orchestrator", "Build pipeline completed successfully!")
+            # Completed all tasks loop (may contain skipped tasks)
+            # Fetch all tasks again to check for skipped tasks
+            skipped_tasks = [t for t in all_tasks if t.status == "failed_skipped"]
+            if skipped_tasks:
+                await self.log(project_id, "INFO", "orchestrator", f"Starting automatic post-build self-healing phase for {len(skipped_tasks)} skipped tasks.")
+                for task in skipped_tasks:
+                    await self.log(project_id, "INFO", "orchestrator", f"Attempting self-healing for task: {task.name}")
+                    success = await self.execute_task(task, project.project_dir or "/tmp")
+                    if success:
+                        task.status = "passed"
+                        await self.db.commit()
+                        await self.log(project_id, "INFO", "orchestrator", f"Self-healing successful! Task {task.name} passed.")
+                    else:
+                        await self.log(project_id, "WARNING", "orchestrator", f"Self-healing failed for task: {task.name}")
+                        task.status = "failed"
+                        await self.db.commit()
+
+                # Re-check task statuses after self-healing attempts
+                final_failed = [t for t in all_tasks if t.status in ["failed", "failed_skipped"]]
+                if final_failed:
+                    project.status = "complete_with_gaps"
+                    await self.db.commit()
+                    await self.log(project_id, "WARNING", "orchestrator", f"Build finished with gaps. {len(final_failed)} tasks failed to resolve.")
+                else:
+                    project.status = "complete"
+                    await self.db.commit()
+                    await self.log(project_id, "INFO", "orchestrator", "Build pipeline completed successfully after self-healing!")
+            else:
+                project.status = "complete"
+                await self.db.commit()
+                await self.log(project_id, "INFO", "orchestrator", "Build pipeline completed successfully!")
 
         self._is_running = False
 

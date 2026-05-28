@@ -27,6 +27,7 @@ class ProjectResponse(BaseModel):
     tech_stack: list | dict | None = None
     status: str
     project_dir: str | None = None
+    pause_on_failure: bool = False
     created_at: datetime
     updated_at: datetime
 
@@ -60,4 +61,9 @@ class SprintResponse(BaseModel):
     tasks: list[SprintTaskResponse] = []
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class ProjectCreate(BaseModel):
+    tech_stack: Optional[list[str]] = None
+
 

@@ -1,4 +1,5 @@
 from uuid import UUID
+from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -13,7 +14,7 @@ from app.models.project import Project
 from app.models.document import Document
 from app.models.sprint import Sprint
 from app.models.sprint_task import SprintTask
-from app.schemas.project import ProjectResponse, DocumentResponse, SprintResponse, SprintTaskResponse
+from app.schemas.project import ProjectResponse, DocumentResponse, SprintResponse, SprintTaskResponse, ProjectCreate
 from app.services.doc_generation_service import DocGenerationService
 from app.services.sprint_generation_service import SprintGenerationService
 from app.ai.provider import get_ai_provider, AIProvider
@@ -25,6 +26,7 @@ router = APIRouter(dependencies=[Depends(get_current_user)])
 @router.post("/solutions/{solution_id}/create-project", response_model=ProjectResponse, status_code=status.HTTP_201_CREATED)
 async def create_project(
     solution_id: UUID,
+    payload: Optional[ProjectCreate] = None,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
@@ -59,6 +61,11 @@ async def create_project(
     project_id = uuid.uuid4()
     project_dir = ProjectDirService.create_project_dir(str(project_id), solution.title)
 
+    # Use custom tech stack if provided, else fall back to solution's default stack
+    tech_stack_final = solution.tech_stack or []
+    if payload is not None and payload.tech_stack is not None:
+        tech_stack_final = payload.tech_stack
+
     new_project = Project(
         id=project_id,
         user_id=current_user.id,
@@ -68,7 +75,7 @@ async def create_project(
         industry=session.industry,
         location=session.location,
         maturity_level=session.maturity_level,
-        tech_stack=solution.tech_stack or [],
+        tech_stack=tech_stack_final,
         status="doc_generation",
         project_dir=project_dir
     )
@@ -665,6 +672,28 @@ async def delete_project(
     await db.commit()
 
     return {"message": "Project deleted successfully"}
+
+
+@router.patch("/projects/{id}", response_model=ProjectResponse)
+async def update_project_settings(
+    id: UUID,
+    payload: dict,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    stmt = select(Project).where(Project.id == id, Project.user_id == current_user.id)
+    res = await db.execute(stmt)
+    project = res.scalars().first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    if "pause_on_failure" in payload:
+        project.pause_on_failure = bool(payload["pause_on_failure"])
+
+    await db.commit()
+    await db.refresh(project)
+    return project
+
 
 
 

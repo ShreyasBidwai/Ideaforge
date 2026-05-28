@@ -19,6 +19,17 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     # Run startup events
     logger.info("Initializing IdeaForge Backend...")
+    
+    # Run database migration to ensure pause_on_failure column exists
+    try:
+        from app.core.database import engine
+        from sqlalchemy import text
+        async with engine.begin() as conn:
+            await conn.execute(text("ALTER TABLE projects ADD COLUMN IF NOT EXISTS pause_on_failure BOOLEAN DEFAULT FALSE;"))
+        logger.info("Successfully checked/added projects.pause_on_failure database column.")
+    except Exception as e:
+        logger.error(f"Failed to check/add database column during startup: {e}")
+
     cache_service = CacheService(settings.REDIS_URL)
     await cache_service.connect()
     app.state.cache = cache_service

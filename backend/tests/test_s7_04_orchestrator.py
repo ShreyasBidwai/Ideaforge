@@ -91,6 +91,7 @@ async def test_build_status(client, auth_headers, mock_gemini):
     assert "status" in data
     assert "current_task" in data or "progress" in data
 
+
 # TEST 9: Build logs endpoint
 async def test_build_logs(client, auth_headers, mock_gemini):
     """GET /build/logs should return build log entries"""
@@ -99,3 +100,148 @@ async def test_build_logs(client, auth_headers, mock_gemini):
     proj_id = project.json()["id"]
     response = await client.get(f"/api/v1/projects/{proj_id}/build/logs", headers=auth_headers)
     assert response.status_code == 200
+
+
+# TEST 10: Toggle pause_on_failure via PATCH API
+async def test_patch_project_settings(client, auth_headers, mock_gemini):
+    """PATCH /projects/{id} to toggle pause_on_failure"""
+    sol_id = await create_approved_solution(client, auth_headers, mock_gemini)
+    project_res = await client.post(f"/api/v1/solutions/{sol_id}/create-project", headers=auth_headers)
+    proj_id = project_res.json()["id"]
+    
+    # Toggle pause_on_failure to True
+    response = await client.patch(
+        f"/api/v1/projects/{proj_id}",
+        json={"pause_on_failure": True},
+        headers=auth_headers
+    )
+    assert response.status_code == 200
+    assert response.json()["pause_on_failure"] is True
+    
+    # Toggle pause_on_failure to False
+    response = await client.patch(
+        f"/api/v1/projects/{proj_id}",
+        json={"pause_on_failure": False},
+        headers=auth_headers
+    )
+    assert response.status_code == 200
+    assert response.json()["pause_on_failure"] is False
+
+
+# TEST 11: Orchestrator pause on failure behaviour
+@patch("app.services.build_orchestrator.BuildOrchestrator.execute_task")
+async def test_orchestrator_pause_on_failure(mock_execute, client, auth_headers, mock_gemini):
+    """If pause_on_failure is enabled, failing tasks should pause the entire project build status"""
+    from app.core.database import async_session
+    from app.services.build_orchestrator import BuildOrchestrator
+    from app.models.project import Project
+    from app.models.sprint import Sprint
+    from app.models.sprint_task import SprintTask
+    from app.models.user import User
+    from sqlalchemy.future import select
+    from uuid import uuid4
+
+    sol_id = await create_approved_solution(client, auth_headers, mock_gemini)
+    project_res = await client.post(f"/api/v1/solutions/{sol_id}/create-project", headers=auth_headers)
+    proj_id = project_res.json()["id"]
+    
+    # Enable pause_on_failure
+    await client.patch(
+        f"/api/v1/projects/{proj_id}",
+        json={"pause_on_failure": True},
+        headers=auth_headers
+    )
+
+    async with async_session() as db:
+        # Get actual registered user id
+        stmt_user = select(User)
+        res_user = await db.execute(stmt_user)
+        user = res_user.scalars().first()
+        user_id = user.id
+
+        # Create a mock sprint and tasks
+        sprint = Sprint(id=uuid4(), project_id=proj_id, sprint_number=1, name="Sprint 1")
+        task = SprintTask(
+            id=uuid4(),
+            sprint_id=sprint.id,
+            task_number=1,
+            name="Task 1",
+            prompt="Write hello world",
+            status="pending"
+        )
+        db.add(sprint)
+        db.add(task)
+        await db.commit()
+
+        # Mock execution failure
+        mock_execute.return_value = False
+
+        # Run orchestrator
+        orch = BuildOrchestrator(db)
+        await orch.start_build(proj_id, user_id)
+
+        # Verify project is paused
+        stmt = select(Project).where(Project.id == proj_id)
+        res = await db.execute(stmt)
+        proj = res.scalars().first()
+        assert proj.status == "paused"
+
+
+# TEST 12: Orchestrator self healing behaviour
+@patch("app.services.build_orchestrator.BuildOrchestrator.execute_task")
+async def test_orchestrator_continue_with_self_healing(mock_execute, client, auth_headers, mock_gemini):
+    """If pause_on_failure is disabled, failing tasks should skip first, then heal at the end"""
+    from app.core.database import async_session
+    from app.services.build_orchestrator import BuildOrchestrator
+    from app.models.project import Project
+    from app.models.sprint import Sprint
+    from app.models.sprint_task import SprintTask
+    from app.models.user import User
+    from sqlalchemy.future import select
+    from uuid import uuid4
+
+    sol_id = await create_approved_solution(client, auth_headers, mock_gemini)
+    project_res = await client.post(f"/api/v1/solutions/{sol_id}/create-project", headers=auth_headers)
+    proj_id = project_res.json()["id"]
+    
+    # Ensure pause_on_failure is False
+    await client.patch(
+        f"/api/v1/projects/{proj_id}",
+        json={"pause_on_failure": False},
+        headers=auth_headers
+    )
+
+    async with async_session() as db:
+        # Get actual registered user id
+        stmt_user = select(User)
+        res_user = await db.execute(stmt_user)
+        user = res_user.scalars().first()
+        user_id = user.id
+
+        # Create a mock sprint and task
+        sprint = Sprint(id=uuid4(), project_id=proj_id, sprint_number=1, name="Sprint 1")
+        task = SprintTask(
+            id=uuid4(),
+            sprint_id=sprint.id,
+            task_number=1,
+            name="Task 1",
+            prompt="Write hello world",
+            status="pending"
+        )
+        db.add(sprint)
+        db.add(task)
+        await db.commit()
+
+        # Mock execution failure on first run, success on self-healing run
+        mock_execute.side_effect = [False, True]
+
+        # Run orchestrator
+        orch = BuildOrchestrator(db)
+        await orch.start_build(proj_id, user_id)
+
+        # Verify task is now passed after self-healing and project status is complete
+        stmt = select(Project).where(Project.id == proj_id)
+        res = await db.execute(stmt)
+        proj = res.scalars().first()
+        assert proj.status == "complete"
+

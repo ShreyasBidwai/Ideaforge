@@ -214,6 +214,7 @@ export interface Project {
   tech_stack: string[] | Record<string, any> | null;
   status: string;
   project_dir: string | null;
+  pause_on_failure?: boolean;
   created_at: string;
   updated_at: string;
   documents?: Document[];
