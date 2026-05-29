@@ -385,16 +385,15 @@ const Approvals: React.FC = () => {
         </div>
       )}
 
-      {/* Tech Stack Customizer Modal */}
       <AnimatePresence>
         {activeSolutionForModal && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
+          <div className="fixed inset-0 z-50 overflow-y-auto flex items-start justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
             <motion.div
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.95 }}
               transition={{ duration: 0.2 }}
-              className="bg-slate-900 border border-white/10 rounded-2xl w-full max-w-lg p-6 shadow-2xl space-y-6 relative overflow-hidden text-white"
+              className="bg-slate-900 border border-white/10 rounded-2xl w-full max-w-lg p-6 shadow-2xl relative text-white my-auto space-y-6"
             >
               {/* Title */}
               <div className="space-y-1.5 border-b border-white/5 pb-4">

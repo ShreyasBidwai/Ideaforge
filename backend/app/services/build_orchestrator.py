@@ -422,13 +422,28 @@ Existing files that may be relevant: {files_str}"""
             return 0, 0, ""
 
         import os
+        import sys
+        
+        # Prepend virtual environment bin path to PATH
+        env = os.environ.copy()
+        venv_bin = os.path.dirname(sys.executable)
+        env["PATH"] = venv_bin + os.pathsep + env.get("PATH", "")
+
         req_file = os.path.join(project_dir, "requirements.txt")
+        req_cwd = project_dir
+        if not os.path.exists(req_file):
+            alt_req = os.path.join(project_dir, "backend", "requirements.txt")
+            if os.path.exists(alt_req):
+                req_file = alt_req
+                req_cwd = os.path.join(project_dir, "backend")
+
         if os.path.exists(req_file):
             subprocess.run(
                 f"pip install -q -r {req_file}",
                 shell=True,
                 capture_output=True,
-                cwd=project_dir,
+                cwd=req_cwd,
+                env=env,
                 timeout=120
             )
         
@@ -439,6 +454,7 @@ Existing files that may be relevant: {files_str}"""
                 capture_output=True,
                 text=True,
                 cwd=project_dir,
+                env=env,
                 timeout=120
             )
             output = result.stdout + "\n" + result.stderr
