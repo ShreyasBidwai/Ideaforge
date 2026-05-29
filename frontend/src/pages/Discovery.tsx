@@ -45,6 +45,7 @@ export const Discovery: React.FC = () => {
 
   const [industry, setIndustry] = useState("");
   const [location, setLocation] = useState("");
+  const [guidance, setGuidance] = useState("");
   const [errors, setErrors] = useState<{ industry?: string; location?: string }>({});
   const [viewMode, setViewMode] = useState<"pain_points" | "problems">("pain_points");
 
@@ -75,7 +76,7 @@ export const Discovery: React.FC = () => {
     setErrors({});
 
     try {
-      await createAndDiscover(industry, location, selectedMaturity, selectedTechStack);
+      await createAndDiscover(industry, location, selectedMaturity, selectedTechStack, guidance);
     } catch (err) {
       console.error("Discovery error:", err);
     }
@@ -191,6 +192,25 @@ export const Discovery: React.FC = () => {
               selected={selectedTechStack}
               onChange={setSelectedTechStack}
             />
+
+            <div className="space-y-2">
+              <label htmlFor="guidance" className="block text-sm font-semibold text-slate-350">
+                Anything specific? <span className="text-slate-500 font-normal">(optional)</span>
+              </label>
+              <textarea
+                id="guidance"
+                rows={3}
+                maxLength={1000}
+                placeholder="e.g. keep the tech stack simple · an internal admin or logging tool · something a solo dev could ship in a weekend"
+                value={guidance}
+                onChange={(e) => setGuidance(e.target.value)}
+                className="w-full bg-slate-950/60 border border-white/10 focus:border-blue-500/80 rounded-xl px-4 py-3 text-sm text-slate-100 placeholder-slate-600 focus:outline-none focus:ring-1 focus:ring-blue-500/80 transition-all resize-none"
+              />
+              <div className="flex justify-between items-center text-[11px] text-slate-500 px-1">
+                <span>A short steer helps tailor the ideas. Leave blank to explore broadly.</span>
+                <span className="font-mono">{guidance.length}/1000</span>
+              </div>
+            </div>
 
             <button
               type="submit"

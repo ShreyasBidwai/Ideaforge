@@ -45,7 +45,6 @@ export default function ProjectDetail() {
   const [editingDocId, setEditingDocId] = useState<string | null>(null);
   const [expandedDocs, setExpandedDocs] = useState<Record<string, boolean>>({});
   const [e2eTests, setE2ETests] = useState<any[]>([]);
-
   const {
     project,
     sprints,
@@ -64,6 +63,29 @@ export default function ProjectDetail() {
     cancelDocGeneration,
     cancelSprintGeneration
   } = useBuildStore();
+
+  const [pauseOnFailure, setPauseOnFailure] = useState(false);
+
+  useEffect(() => {
+    if (project) {
+      setPauseOnFailure(!!project.pause_on_failure);
+    }
+  }, [project]);
+
+  const handleTogglePauseOnFailure = async () => {
+    if (!projectId || !project) return;
+    const newValue = !pauseOnFailure;
+    setPauseOnFailure(newValue);
+    try {
+      await apiClient.patch(`/api/v1/projects/${projectId}`, {
+        pause_on_failure: newValue,
+      });
+      fetchBuildStatus(projectId);
+    } catch (err) {
+      console.error("Failed to update project settings:", err);
+      setPauseOnFailure(!newValue);
+    }
+  };
 
   const runStore = useRunStore();
 
@@ -735,6 +757,29 @@ export default function ProjectDetail() {
 
         {activeTab === "build" && (
           <div className="space-y-6">
+            {/* Build Policy Settings */}
+            <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 flex flex-col sm:flex-row items-center justify-between gap-4">
+              <div className="space-y-0.5">
+                <h3 className="text-sm font-bold text-slate-200 font-mono">Build Policy Settings</h3>
+                <p className="text-xs text-slate-400 font-sans">Configure orchestrator behavior when task retries or tests fail.</p>
+              </div>
+              <div className="flex items-center space-x-3">
+                <label className="relative inline-flex items-center cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={pauseOnFailure}
+                    onChange={handleTogglePauseOnFailure}
+                    className="sr-only peer"
+                    id="pause-on-failure-toggle"
+                  />
+                  <div className="w-11 h-6 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-slate-400 after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600 peer-checked:after:bg-white peer-checked:after:border-indigo-600"></div>
+                  <span className="ml-3 text-xs font-semibold text-slate-300 font-mono uppercase tracking-wider">
+                    {pauseOnFailure ? "Pause Build on Failure" : "Skip Failed & Auto-Heal"}
+                  </span>
+                </label>
+              </div>
+            </div>
+
             {sprintGenerationProgress && (
               <div className="bg-slate-900 border border-slate-800 rounded-2xl p-8 flex flex-col items-center justify-center min-h-[200px] text-center space-y-3">
                 <Loader2 className="w-8 h-8 text-blue-500 animate-spin mx-auto" />

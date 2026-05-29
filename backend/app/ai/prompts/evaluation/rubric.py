@@ -29,6 +29,7 @@ Rules:
 - Assign explicit weights to each criterion reflecting what matters most for THIS problem (weights are positive numbers, typically 1-3).
 - Define 1-3 disqualifiers — hard pass/fail gates that eliminate a candidate regardless of score.
 - Disqualifiers should be concrete and testable, not vague.
+- CRITICAL: Disqualifiers must target actual violations, fundamental design flaws, or direct incompatibilities. They must NOT require a solution to "explicitly state" or "explicitly mention" compliance, certification, or specific legal/regulatory boilerplate (e.g. "fails to explicitly state adherence to DPDP Act 2023"), since high-level solution proposals will not include such boilerplate.
 {extra_criteria}
 
 JSON Schema:

@@ -21,7 +21,7 @@ interface DiscoveryState {
   maturityLevels: MaturityLevelInfo[];
   generatedProblems: ProblemStatement[];
   isGeneratingProblems: boolean;
-  createAndDiscover: (industry: string, location: string, maturityLevel: string, techStack: string[]) => Promise<void>;
+  createAndDiscover: (industry: string, location: string, maturityLevel: string, techStack: string[], guidance?: string) => Promise<void>;
   clearSession: () => void;
   fetchMaturityLevels: () => Promise<void>;
   setSelectedMaturity: (maturity: string) => void;
@@ -41,7 +41,7 @@ export const useDiscoveryStore = create<DiscoveryState>((set, get) => ({
   generatedProblems: [],
   isGeneratingProblems: false,
 
-  createAndDiscover: async (industry: string, location: string, maturityLevel: string, techStack: string[]) => {
+  createAndDiscover: async (industry: string, location: string, maturityLevel: string, techStack: string[], guidance?: string) => {
     set({ isDiscovering: true, error: null, painPoints: [], currentStep: "starting" });
     try {
       const session = await sessionService.createSession({
@@ -49,6 +49,7 @@ export const useDiscoveryStore = create<DiscoveryState>((set, get) => ({
         location,
         maturity_level: maturityLevel as any,
         tech_stack_preferences: techStack,
+        guidance: guidance && guidance.trim() ? guidance.trim() : undefined,
       });
       set({ currentSession: session });
       useToastStore.getState().addToast("success", `Discovery session started for ${industry}`);

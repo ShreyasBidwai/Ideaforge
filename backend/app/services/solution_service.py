@@ -2,6 +2,7 @@ import json
 import logging
 from uuid import UUID
 from fastapi import HTTPException, status
+from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy.orm import joinedload
@@ -148,6 +149,10 @@ class SolutionService:
         if len(mechanisms) != len(set(mechanisms)):
             # If duplicates, we can raise or handle
             logger.warning("AI generated identical mechanisms. Forcing last to differentiate.")
+        # Delete existing solutions (which cascades to evaluations)
+        await self.db.execute(
+            delete(Solution).where(Solution.problem_id == problem.id)
+        )
 
         created_solutions = []
         for item in parsed:
@@ -379,6 +384,9 @@ class SolutionService:
 
         # 4. Saving
         yield {"status": "saving", "message": "Saving solution candidates..."}
+        await self.db.execute(
+            delete(Solution).where(Solution.problem_id == problem.id)
+        )
         created_solutions = []
         for item in parsed:
             db_sol = Solution(

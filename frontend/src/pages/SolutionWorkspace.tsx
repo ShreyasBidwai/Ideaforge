@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
-import { ArrowLeft, Play, Award } from "lucide-react";
+import { ArrowLeft, Play, Award, RotateCcw } from "lucide-react";
 
 import { useSolutionStore } from "../stores/solutionStore";
 import { useToastStore } from "../stores/toastStore";
@@ -152,6 +152,16 @@ const SolutionWorkspace: React.FC = () => {
             {solutionsCount > 0 && !isLoading && !isGenerating && (
               <ViewToggle view={view} onChange={setView} />
             )}
+            {solutionsCount > 0 && (
+              <button
+                onClick={handleGenerate}
+                disabled={isLoading || isGenerating}
+                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-white/5 rounded-xl font-medium shadow-md transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5 text-sm"
+              >
+                <RotateCcw className="w-4 h-4" />
+                <span>Regenerate Solutions</span>
+              </button>
+            )}
             <button
               onClick={handleRunEvaluation}
               disabled={solutionsCount === 0 || isLoading || isGenerating}
@@ -240,16 +250,26 @@ const SolutionWorkspace: React.FC = () => {
                 </p>
               </div>
               
-              <button
-                onClick={handleRunEvaluation}
-                disabled={solutionsCount < 2}
-                className="w-full md:w-auto px-8 py-4 bg-blue-600 hover:bg-blue-500 text-white font-semibold rounded-xl shadow-lg hover:shadow-blue-500/25 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-              >
-                <Play className="w-5 h-5 fill-current" />
-                <span>
-                  {session && (session.status === "evaluation" || session.status === "completed") ? "View Evaluation" : "Run Evaluation"}
-                </span>
-              </button>
+              <div className="flex items-center gap-3 w-full md:w-auto justify-end">
+                <button
+                  onClick={handleGenerate}
+                  disabled={isLoading || isGenerating}
+                  className="w-full md:w-auto px-6 py-4 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-white/5 font-semibold rounded-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                >
+                  <RotateCcw className="w-5 h-5" />
+                  <span>Regenerate</span>
+                </button>
+                <button
+                  onClick={handleRunEvaluation}
+                  disabled={solutionsCount < 2}
+                  className="w-full md:w-auto px-8 py-4 bg-blue-600 hover:bg-blue-500 text-white font-semibold rounded-xl shadow-lg hover:shadow-blue-500/25 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                >
+                  <Play className="w-5 h-5 fill-current" />
+                  <span>
+                    {session && (session.status === "evaluation" || session.status === "completed") ? "View Evaluation" : "Run Evaluation"}
+                  </span>
+                </button>
+              </div>
             </div>
             {solutionsCount < 2 && (
               <p className="text-xs text-red-400 text-center md:text-left">

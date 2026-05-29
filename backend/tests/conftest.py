@@ -72,6 +72,7 @@ async def setup_test_database_columns(event_loop):
     from app.models.setup_step import SetupStep  # Ensure registered in metadata
     async with engine.begin() as conn:
         await conn.execute(text("ALTER TABLE projects ADD COLUMN IF NOT EXISTS pause_on_failure BOOLEAN DEFAULT FALSE;"))
+        await conn.execute(text("ALTER TABLE sessions ADD COLUMN IF NOT EXISTS guidance TEXT;"))
         await conn.run_sync(Base.metadata.create_all)
     await engine.dispose()
 

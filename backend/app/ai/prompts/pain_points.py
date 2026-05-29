@@ -1,8 +1,16 @@
-from app.core.maturity import MaturityConfig
+from typing import Optional
+from app.core.maturity import MaturityConfig, get_maturity_config, MaturityLevel
 
-def build_pain_point_prompt(industry: str, location: str, maturity_config: MaturityConfig) -> tuple[str, str]:
+def build_pain_point_prompt(
+    industry: str,
+    location: str,
+    maturity_config: Optional[MaturityConfig] = None,
+    guidance: Optional[str] = None
+) -> tuple[str, str]:
     """Returns (system_prompt, user_prompt) for pain point discovery"""
-    
+    if maturity_config is None:
+        maturity_config = get_maturity_config(MaturityLevel.MVP)
+
     min_count, max_count = maturity_config.pain_point_count
     
     system_prompt = f"""You are an expert industry analyst and startup researcher. Your job is to identify real, specific, actionable pain points in a given industry and location.
@@ -31,4 +39,12 @@ JSON Schema:
 
     user_prompt = f"Discover the top pain points in the {industry} industry in {location}. Focus on problems that a technology startup could potentially solve."
     
+    if guidance and guidance.strip():
+        user_prompt += (
+            f"\n\nUSER GUIDANCE (treat as a strong steer, not a hard constraint):\n"
+            f"{guidance.strip()}\n"
+            f"Bias the pain points and resulting ideas toward this guidance where reasonable, "
+            f"but do not invent pain points that don't fit the industry/location."
+        )
+
     return system_prompt, user_prompt

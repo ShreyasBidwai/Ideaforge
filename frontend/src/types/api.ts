@@ -50,6 +50,7 @@ export interface Session {
   user_id: string;
   industry: string;
   location: string;
+  guidance: string | null;
   pain_points: PainPoint[] | null;
   maturity_level: 'poc' | 'mvp' | 'pre_production' | 'production';
   tech_stack_preferences: string[] | null;
@@ -61,6 +62,7 @@ export interface Session {
 export interface CreateSessionRequest {
   industry: string;
   location: string;
+  guidance?: string;
   maturity_level?: 'poc' | 'mvp' | 'pre_production' | 'production';
   tech_stack_preferences?: string[];
 }

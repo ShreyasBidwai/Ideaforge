@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { Check, ExternalLink, HelpCircle, Save } from "lucide-react";
-import { SetupStep } from "../../stores/runStore";
+import { type SetupStep } from "../../stores/runStore";
 
 interface SetupGateProps {
   steps: SetupStep[];

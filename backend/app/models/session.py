@@ -1,5 +1,5 @@
 import uuid
-from sqlalchemy import Column, DateTime, ForeignKey, JSON, String, text
+from sqlalchemy import Column, DateTime, ForeignKey, JSON, String, Text, text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
@@ -23,6 +23,7 @@ class Session(Base):
     )
     industry = Column(String(255), nullable=False)
     location = Column(String(255), nullable=False)
+    guidance = Column(Text, nullable=True)
     pain_points = Column(JSON, nullable=True)
     maturity_level = Column(String(50), default="mvp", nullable=False)
     tech_stack_preferences = Column(JSON, nullable=True)

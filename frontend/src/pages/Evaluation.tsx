@@ -44,11 +44,15 @@ const Evaluation: React.FC = () => {
   const { fetchSolutions, solutions, approveSolution } = useSolutionStore();
 
   const [activeTab, setActiveTab] = useState<string>("rubric");
+  const [attemptedSteps, setAttemptedSteps] = useState<Record<string, boolean>>({});
+  const [disqualifierError, setDisqualifierError] = useState<string | null>(null);
 
   useEffect(() => {
     if (problemId) {
       loadFullEvaluation(problemId);
       fetchSolutions(problemId);
+      setAttemptedSteps({});
+      setDisqualifierError(null);
     }
   }, [problemId, loadFullEvaluation, fetchSolutions]);
 
@@ -58,50 +62,64 @@ const Evaluation: React.FC = () => {
 
   // Auto-run disqualifier check when entering disqualifiers step
   useEffect(() => {
-    if (activeTab === "disqualifiers" && problemId && !disqualifierResults && !isLoading) {
+    if (
+      activeTab === "disqualifiers" &&
+      problemId &&
+      !disqualifierResults &&
+      !isLoading &&
+      !attemptedSteps["disqualifiers"]
+    ) {
+      setAttemptedSteps((prev) => ({ ...prev, disqualifiers: true }));
+      setDisqualifierError(null);
       runDisqualifiers(problemId).catch((err) => {
-        addToast("error", err.message || "Failed to run disqualifiers check");
+        const errMsg = err.response?.data?.detail || err.message || "Failed to run disqualifiers check";
+        setDisqualifierError(errMsg);
+        addToast("error", errMsg);
       });
     }
-  }, [activeTab, problemId, disqualifierResults, isLoading, runDisqualifiers, addToast]);
+  }, [activeTab, problemId, disqualifierResults, isLoading, runDisqualifiers, addToast, attemptedSteps]);
 
   // Auto-run scoring when entering scoring step
   useEffect(() => {
-    if (activeTab === "scoring" && problemId && !scores && !isLoading) {
+    if (activeTab === "scoring" && problemId && !scores && !isLoading && !attemptedSteps["scoring"]) {
+      setAttemptedSteps((prev) => ({ ...prev, scoring: true }));
       runScoring(problemId).catch((err) => {
         addToast("error", err.message || "Failed to score solutions");
       });
     }
-  }, [activeTab, problemId, scores, isLoading, runScoring, addToast]);
+  }, [activeTab, problemId, scores, isLoading, runScoring, addToast, attemptedSteps]);
 
   // Auto-run attacks when entering attacks step
   useEffect(() => {
-    if (activeTab === "attacks" && problemId && !attacks && !isLoading) {
+    if (activeTab === "attacks" && problemId && !attacks && !isLoading && !attemptedSteps["attacks"]) {
+      setAttemptedSteps((prev) => ({ ...prev, attacks: true }));
       runAttacks(problemId).catch((err) => {
         addToast("error", err.message || "Failed to run Devil's Advocate attacks");
       });
     }
-  }, [activeTab, problemId, attacks, isLoading, runAttacks, addToast]);
+  }, [activeTab, problemId, attacks, isLoading, runAttacks, addToast, attemptedSteps]);
 
   // Auto-run ACH when entering ach step
   useEffect(() => {
-    if (activeTab === "ach" && problemId && !achAnalysis && !isLoading) {
+    if (activeTab === "ach" && problemId && !achAnalysis && !isLoading && !attemptedSteps["ach"]) {
+      setAttemptedSteps((prev) => ({ ...prev, ach: true }));
       runACH(problemId).catch((err) => {
         addToast("error", err.message || "Failed to run ACH Analysis");
       });
     }
-  }, [activeTab, problemId, achAnalysis, isLoading, runACH, addToast]);
+  }, [activeTab, problemId, achAnalysis, isLoading, runACH, addToast, attemptedSteps]);
 
   // Auto-run comparison when entering comparison step
   useEffect(() => {
-    if (activeTab === "comparison" && problemId && !comparison && !isLoading) {
+    if (activeTab === "comparison" && problemId && !comparison && !isLoading && !attemptedSteps["comparison"]) {
+      setAttemptedSteps((prev) => ({ ...prev, comparison: true }));
       runGenerateComparison(problemId).then(() => {
         addToast("success", "Evaluation complete — review comparison");
       }).catch((err) => {
         addToast("error", err.message || "Failed to generate Comparison Matrix");
       });
     }
-  }, [activeTab, problemId, comparison, isLoading, runGenerateComparison, addToast]);
+  }, [activeTab, problemId, comparison, isLoading, runGenerateComparison, addToast, attemptedSteps]);
 
   const handleUpdateRubric = async (newRubric: any) => {
     if (!problemId) return;
@@ -278,6 +296,7 @@ const Evaluation: React.FC = () => {
                 {activeTab === "disqualifiers" && (
                   <DisqualifierGate
                     results={disqualifierResults}
+                    error={disqualifierError}
                     onContinue={() => setStep("scoring")}
                     onRegenerateSolutions={() => navigate(`/workspace/${problemId}`)}
                   />

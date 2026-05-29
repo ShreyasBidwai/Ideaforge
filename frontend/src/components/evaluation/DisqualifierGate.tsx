@@ -4,15 +4,40 @@ import type { DisqualifierResult } from "../../types/api";
 
 interface DisqualifierGateProps {
   results: DisqualifierResult[] | null;
+  error?: string | null;
   onContinue: () => void;
   onRegenerateSolutions?: () => void;
 }
 
 const DisqualifierGate: React.FC<DisqualifierGateProps> = ({
   results,
+  error,
   onContinue,
   onRegenerateSolutions,
 }) => {
+  if (error) {
+    return (
+      <div className="flex flex-col items-center justify-center p-8 bg-slate-900 border border-white/5 rounded-2xl text-center space-y-6 max-w-lg mx-auto shadow-xl">
+        <div className="w-12 h-12 rounded-full bg-red-500/10 flex items-center justify-center border border-red-500/20">
+          <AlertTriangle className="w-6 h-6 text-red-500" />
+        </div>
+        <div className="space-y-2">
+          <h4 className="text-lg font-bold text-white">Disqualifier Gate Failed</h4>
+          <p className="text-slate-400 text-sm leading-relaxed">{error}</p>
+        </div>
+        {onRegenerateSolutions && (
+          <button
+            onClick={onRegenerateSolutions}
+            className="px-6 py-2.5 bg-red-600 hover:bg-red-500 text-white font-semibold rounded-xl shadow-lg transition-all flex items-center justify-center gap-2"
+          >
+            <RefreshCw className="w-4 h-4 animate-spin-hover" />
+            <span>Regenerate Solutions</span>
+          </button>
+        )}
+      </div>
+    );
+  }
+
   if (!results) {
     return (
       <div className="flex flex-col items-center justify-center p-8 bg-slate-900 border border-white/5 rounded-2xl text-center space-y-4 max-w-lg mx-auto shadow-xl">

@@ -11,6 +11,7 @@ async def create_session(db: AsyncSession, user_id: UUID, data: SessionCreate) -
         user_id=user_id,
         industry=data.industry,
         location=data.location,
+        guidance=data.guidance,
         maturity_level=data.maturity_level.value,
         tech_stack_preferences=data.tech_stack_preferences,
         status="discovery"

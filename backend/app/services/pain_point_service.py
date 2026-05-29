@@ -27,6 +27,14 @@ class PainPointService:
         location: str,
         maturity_level: MaturityLevel
     ) -> list[PainPointSchema]:
+        result = await self.db.execute(select(Session).where(Session.id == session_id))
+        session = result.scalar_one_or_none()
+        if not session:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Session not found"
+            )
+
         # Before calling AI, check Redis cache
         if self.cache:
             cache_key = self.cache.make_pain_point_key(industry, location, maturity_level.value)
@@ -37,13 +45,6 @@ class PainPointService:
                     parsed = PainPointResponse.model_validate(data)
                     
                     # Update session in DB
-                    result = await self.db.execute(select(Session).where(Session.id == session_id))
-                    session = result.scalar_one_or_none()
-                    if not session:
-                        raise HTTPException(
-                            status_code=status.HTTP_404_NOT_FOUND,
-                            detail="Session not found"
-                        )
                     session.pain_points = [pp.model_dump() for pp in parsed.pain_points]
                     session.status = "problem_generation"
                     await self.db.commit()
@@ -54,7 +55,7 @@ class PainPointService:
                     logger.warning(f"Error parsing cached pain points: {e}")
 
         maturity_config = get_maturity_config(maturity_level)
-        system_prompt, user_prompt = build_pain_point_prompt(industry, location, maturity_config)
+        system_prompt, user_prompt = build_pain_point_prompt(industry, location, maturity_config, session.guidance)
 
         # Gemini-compatible JSON schema
         response_schema = {
@@ -121,15 +122,6 @@ class PainPointService:
                 logger.warning(f"Failed to cache pain points in Redis: {e}")
 
         # Update session
-        result = await self.db.execute(select(Session).where(Session.id == session_id))
-        session = result.scalar_one_or_none()
-        
-        if not session:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Session not found"
-            )
-
         session.pain_points = [pp.model_dump() for pp in parsed.pain_points]
         session.status = "problem_generation"
         
@@ -145,6 +137,14 @@ class PainPointService:
         location: str,
         maturity_level: MaturityLevel
     ) -> AsyncGenerator[dict, None]:
+        result = await self.db.execute(select(Session).where(Session.id == session_id))
+        session = result.scalar_one_or_none()
+        if not session:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Session not found"
+            )
+
         # Before calling AI, check Redis cache
         if self.cache:
             cache_key = self.cache.make_pain_point_key(industry, location, maturity_level.value)
@@ -155,13 +155,6 @@ class PainPointService:
                     parsed = PainPointResponse.model_validate(data)
                     
                     # Update session in DB
-                    result = await self.db.execute(select(Session).where(Session.id == session_id))
-                    session = result.scalar_one_or_none()
-                    if not session:
-                        raise HTTPException(
-                            status_code=status.HTTP_404_NOT_FOUND,
-                            detail="Session not found"
-                        )
                     session.pain_points = [pp.model_dump() for pp in parsed.pain_points]
                     session.status = "problem_generation"
                     await self.db.commit()
@@ -190,7 +183,7 @@ class PainPointService:
         }
 
         maturity_config = get_maturity_config(maturity_level)
-        system_prompt, user_prompt = build_pain_point_prompt(industry, location, maturity_config)
+        system_prompt, user_prompt = build_pain_point_prompt(industry, location, maturity_config, session.guidance)
 
         # Gemini-compatible JSON schema
         response_schema = {
@@ -263,15 +256,6 @@ class PainPointService:
         }
 
         # Update session
-        result = await self.db.execute(select(Session).where(Session.id == session_id))
-        session = result.scalar_one_or_none()
-        
-        if not session:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Session not found"
-            )
-
         session.pain_points = [pp.model_dump() for pp in parsed.pain_points]
         session.status = "problem_generation"
         

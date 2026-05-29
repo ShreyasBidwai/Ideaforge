@@ -13,6 +13,7 @@ If a solution meets none of the disqualifiers, it PASSES (passed = true).
 Rules:
 - Return ONLY valid JSON matching the schema. No explanations outside JSON.
 - Be objective and specific.
+- Be realistic and fair: since these are high-level solution proposals, do not disqualify a solution for 'failing to explicitly state' compliance or safety measures unless the description directly indicates a clear violation, risk, or incompatibility with the disqualifier. Assume standard best-practice compliance unless there is a clear red flag.
 
 JSON Schema:
 {

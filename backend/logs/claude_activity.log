@@ -9169,3 +9169,61 @@ All 19 tests pass. Summary of what was implemented:
 
 I also added `apscheduler` and `aiosqlite` to `requirements.txt`, and added no-op `add`/`flush`/`commit` methods to the pre-existing `FakeAsyncSession` test double so the existing API tests continue to pass alongside the new audit log call.
 ================================================================================
+
+================================================================================
+TIMESTAMP: 2026-05-28T21:00:14.712646Z
+CWD: /home/dev84/ideaforge-projects/zero-knowledge-proof-anonymized-matching-and-secur_5468a5c1-7fcb-4245-9e28-496e47d6e59c
+TIMEOUT: 600s
+DURATION: 115.6s
+EXIT CODE: 0
+SUCCESS: True
+RATE LIMITED: False
+
+PROMPT:
+Initialize the monorepo structure for the Zero-Knowledge Proof Anonymized Matching and Secure Consultation Portal. Create the root directory with the following structure: /circuits, /contracts, /web-client, and /server. Create a root package.json. In /server, initialize a Fastify Node.js/TypeScript project with TypeScript configuration. Implement a basic health check endpoint at GET /health that returns { status: 'ok' }. Ensure the /server project includes 'fastify', 'fastify-plugin', and 'ts-node'. Configure Jest and supertest for testing. In /server/test/health.test.ts, implement a test that asserts the status 200 and the JSON body { status: 'ok' }. Crucially, the test must use 'beforeAll(async () => { await app.ready(); });' to ensure the Fastify instance is fully initialized before the request is made. Ensure the project is set up to allow running tests from the root or server directory.
+
+---------------------------------------- OUTPUT ----------------------------------------
+Tests pass. Here's the final monorepo structure:
+
+```
+/
+├── package.json              # Root workspaces config
+├── circuits/                 # ZK circuits (placeholder)
+├── contracts/                # Smart contracts (placeholder)
+├── web-client/               # Web client (placeholder)
+└── server/
+├── package.json          # fastify, fastify-plugin, ts-node, jest, supertest
+├── tsconfig.json
+├── jest.config.js
+├── src/
+│   ├── app.ts            # buildApp() with /health route via fastify-plugin
+│   └── index.ts          # Server entrypoint
+└── test/
+└── health.test.ts    # Uses beforeAll(async () => { await app.ready(); })
+```
+
+Tests can be run from either the root (`npm test`) or the server directory (`npm test`). The health test correctly awaits `app.ready()` in `beforeAll` before issuing the supertest request against `app.server`, and asserts a 200 status with body `{ status: 'ok' }`.
+================================================================================
+
+================================================================================
+TIMESTAMP: 2026-05-28T21:02:59.979845Z
+CWD: /home/dev84/ideaforge-projects/zero-knowledge-proof-anonymized-matching-and-secur_5468a5c1-7fcb-4245-9e28-496e47d6e59c
+TIMEOUT: 600s
+DURATION: 161.8s
+EXIT CODE: 0
+SUCCESS: True
+RATE LIMITED: False
+
+PROMPT:
+You are tasked with implementing the database schema for the Z-AMP platform. This task requires setting up the PostgreSQL database schema within the '/server' directory. Following the 'Zero-PII' policy defined in the project architecture, create a migration script or a schema initialization file named 'server/db/schema.sql'. Define two primary tables: 'counselors' and 'sessions'. The 'counselors' table must include 'counselor_id' (UUID, primary key), 'zk_proof_root_hash' (VARCHAR), 'specialty_tags' (TEXT array), 'bio' (TEXT), and 'is_verified' (BOOLEAN). The 'sessions' table must include 'session_id' (UUID, primary key), 'counselor_id' (foreign key referencing counselors), 'scheduled_at' (TIMESTAMP), 'status' (VARCHAR), and 'escrow_contract_address' (VARCHAR). Include the GIN index for 'specialty_tags' and the partial index for 'sessions' status as specified in the TRD. Additionally, create a 'server/db/db_config.ts' file using 'pg' or 'knex' to establish a connection pool, ensuring environment variables for DB credentials are used. Write a test file 'server/tests/db_schema.test.ts' that verifies the table creation and index existence by querying the information_schema or pg_catalog.
+
+---------------------------------------- OUTPUT ----------------------------------------
+Clean type-check. Summary of what was added under `server/`:
+
+- **`db/schema.sql`** — creates `counselors` (with `counselor_id UUID PK`, `zk_proof_root_hash VARCHAR`, `specialty_tags TEXT[]`, `bio TEXT`, `is_verified BOOLEAN`) and `sessions` (with FK to `counselors`), plus the GIN index on `specialty_tags` and the partial btree index on `sessions(status) WHERE status = 'pending'` per TRD §8.
+- **`db/db_config.ts`** — `buildPoolConfig` reads all credentials from env (`DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD`, `DB_NAME`, plus pool/SSL knobs), `getPool()` returns a lazy singleton `pg.Pool`, `closePool()` for shutdown, and `applySchema()` for bootstrap/tests.
+- **`tests/db_schema.test.ts`** — uses `information_schema.columns`, `information_schema.table_constraints`, and `pg_catalog` (`pg_index`/`pg_am`/`pg_class`) to assert table columns, the FK to `counselors`, the GIN index method, and the partial-index predicate. Suite is gated on `RUN_DB_TESTS=1` and skips if Postgres isn't reachable; the pure `buildPoolConfig` tests always run.
+- Added `pg` + `@types/pg` to `server/package.json`, extended `jest.config.js` roots to include `tests/`, and broadened `tsconfig.json` includes.
+
+Test run: `2 suites passed, 3 tests passed, 4 skipped (DB-gated)`.
+================================================================================
