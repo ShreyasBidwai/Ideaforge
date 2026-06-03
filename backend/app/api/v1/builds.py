@@ -6,11 +6,12 @@ from fastapi import APIRouter, Depends, HTTPException, status, Header
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
+from sqlalchemy.orm import selectinload
 
 from app.api.deps import get_current_user
 from app.core.database import get_db, async_session
 from app.models import User, Project, Sprint, SprintTask, BuildLog
-from app.services.build_orchestrator import BuildOrchestrator
+from app.services.build_orchestrator import BuildOrchestrator, reconcile_build_status
 from app.services.cron_service import CronService
 from app.core.streaming import format_sse_event
 from app.services.build_queue import BuildQueue
@@ -115,20 +116,26 @@ async def get_build_status(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    stmt = select(Project).where(Project.id == id, Project.user_id == current_user.id)
+    stmt = (
+        select(Project)
+        .where(Project.id == id, Project.user_id == current_user.id)
+        .options(selectinload(Project.sprints).selectinload(Sprint.tasks))
+    )
     res = await db.execute(stmt)
     project = res.scalars().first()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
 
-    stmt_tasks = (
-        select(SprintTask)
-        .join(Sprint, SprintTask.sprint_id == Sprint.id)
-        .where(Sprint.project_id == id)
-        .order_by(Sprint.sprint_number.asc(), SprintTask.task_number.asc())
-    )
-    res_tasks = await db.execute(stmt_tasks)
-    tasks = res_tasks.scalars().all()
+    # Self-heal a status that drifted from the real task states (e.g. a build
+    # whose orchestrator died after the last task passed but before it wrote the
+    # final "complete" status, leaving it stuck on "building" at 100% progress).
+    await reconcile_build_status(db, project)
+
+    tasks = [
+        task
+        for sprint in sorted(project.sprints, key=lambda s: s.sprint_number)
+        for task in sorted(sprint.tasks, key=lambda t: t.task_number)
+    ]
 
     total_tasks = len(tasks)
     passed_tasks = len([t for t in tasks if t.status == "passed"])

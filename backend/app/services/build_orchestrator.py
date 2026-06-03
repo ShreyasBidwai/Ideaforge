@@ -16,6 +16,73 @@ from app.models.build_log import BuildLog
 
 logger = logging.getLogger(__name__)
 
+# Task states that mean a task is still queued or actively being worked on.
+# If ANY task in a project is in one of these states, the build is not finished.
+ACTIVE_TASK_STATES = {"pending", "running", "retrying", "rate_limited"}
+
+# Project states we are allowed to self-heal. "building" can get stuck if the
+# orchestrator process dies before writing the final status; the *complete*
+# states are reconcilable too so stale sprint badges get fixed even on a build
+# that already finished. We deliberately never touch paused/failed/queued/doc_*
+# so we don't override a status the user or orchestrator set intentionally.
+RECONCILABLE_PROJECT_STATES = {"building", "complete", "complete_with_gaps"}
+
+
+async def reconcile_build_status(db: AsyncSession, project: Project) -> bool:
+    """
+    Self-heal a build whose stored status drifted from the real task states.
+
+    The orchestrator writes ``project.status = "complete"`` (and never writes
+    ``sprint.status`` at all) only at the very end of its loop. If that process
+    is interrupted (server restart, crash) after the last task is committed but
+    before the final write, the project is left stuck in ``building`` forever
+    even though every task is in a terminal state — which is exactly why a
+    project can show 100% progress while still reporting "building".
+
+    This derives the correct status purely from the task rows. When the build is
+    genuinely finished (nothing pending/running), it persists the terminal
+    project status and marks every fully-resolved sprint ``completed``. It only
+    acts on reconcilable states and never completes a build that still has
+    pending/running work, so a live or paused build is left untouched.
+
+    ``project`` must already have ``sprints`` and each sprint's ``tasks`` loaded.
+    Returns ``True`` if anything was changed and committed.
+    """
+    if project.status not in RECONCILABLE_PROJECT_STATES:
+        return False
+
+    all_tasks = [task for sprint in project.sprints for task in sprint.tasks]
+    if not all_tasks:
+        return False
+
+    # If any task is still queued or running, the build is genuinely in flight
+    # (or paused mid-way). Don't declare it finished.
+    if any(task.status in ACTIVE_TASK_STATES for task in all_tasks):
+        return False
+
+    changed = False
+
+    # Mark every sprint whose tasks are all in a terminal state as completed so
+    # the UI stops showing finished sprints as "Pending".
+    for sprint in project.sprints:
+        if sprint.tasks and sprint.status != "completed":
+            sprint.status = "completed"
+            changed = True
+
+    # Reconcile a stale in-flight project status to the correct terminal one.
+    if project.status == "building":
+        has_gaps = any(
+            task.status in ("failed", "failed_skipped") for task in all_tasks
+        )
+        project.status = "complete_with_gaps" if has_gaps else "complete"
+        changed = True
+
+    if changed:
+        await db.commit()
+
+    return changed
+
+
 class BuildOrchestrator:
     MAX_RETRIES = 2  # increased from 1
 

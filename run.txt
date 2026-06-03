@@ -14,3 +14,4 @@ cd frontend
 
 # Start the Vite development server
 npm run dev
+
