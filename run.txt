@@ -30,3 +30,11 @@ cd frontend
 
 # Start the Vite development server
 npm run dev
+
+
+
+docker compose up -d --build     # rebuild (after requirements/Dockerfile changes) + start
+docker compose logs -f backend   # stream backend logs
+docker compose exec backend tail -f logs/complete.log   # the unified log
+docker compose down              # stop (keep DB)
+docker compose down -v           # stop + wipe DB volume

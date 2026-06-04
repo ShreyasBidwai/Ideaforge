@@ -1,8 +1,8 @@
 # IdeaForge — local Docker stack: Postgres + Redis + FastAPI backend + Vite frontend.
 #
 #   docker compose up --build
-#   Frontend:  http://localhost:5173
-#   Backend:   http://localhost:8000  (health: /api/v1/health, docs: /docs)
+#   Frontend:  http://localhost:9001
+#   Backend:   http://localhost:9000  (health: /api/v1/health, docs: /docs)
 #
 # The backend reuses YOUR authenticated Claude session by bind-mounting
 # ~/.claude and ~/.claude.json (see the backend `volumes`). It runs as UID 1001
@@ -19,7 +19,7 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
     ports:
-      - "5434:5432"          # optional: inspect the DB from the host (change if 5434 is taken)
+      - "9002:5432"          # optional: inspect the DB from the host
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U tuition -d ideaforge"]
       interval: 5s
@@ -43,7 +43,7 @@ services:
       # Override the host-specific URLs from .env with in-network addresses:
       DATABASE_URL: postgresql+asyncpg://tuition:tuition@db:5432/ideaforge
       REDIS_URL: redis://redis:6379
-      CORS_ORIGINS: '["http://localhost:5173"]'
+      CORS_ORIGINS: '["http://localhost:9001"]'
       HOME: /home/app
       # Alternative to mounting creds: uncomment and set to use an API key instead.
       # ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
@@ -52,25 +52,28 @@ services:
       - ${HOME}/.claude:/home/app/.claude           # reuse your authenticated Claude session
       - ${HOME}/.claude.json:/home/app/.claude.json
     ports:
-      - "8000:8000"
-      - "8100-8110:8100-8110"   # generated child apps (preview) — see caveat in the guide
+      - "9000:8000"
+      - "9003-9005:8100-8102"   # generated child apps (preview) — see caveat in the guide
     depends_on:
       db:
         condition: service_healthy
       redis:
         condition: service_healthy
-    command: sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
+    # --reload-dir scopes hot-reload to the source package only. Without it the
+    # watcher also watches logs/ and projects/ (both written at runtime), which
+    # creates a change->log->change feedback loop that pegs the CPU.
+    command: sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload --reload-dir /app/app"
 
   frontend:
     build:
       context: ./frontend
     environment:
-      VITE_API_URL: http://localhost:8000   # browser (on host) -> published backend port
+      VITE_API_URL: http://localhost:9000   # browser (on host) -> published backend port
     volumes:
       - ./frontend:/app
       - /app/node_modules                   # keep the image's linux node_modules, not the host's
     ports:
-      - "5173:5173"
+      - "9001:5173"          # browser loads the app from http://localhost:9001
     depends_on:
       - backend
 
