@@ -3,6 +3,7 @@ import { Users, DollarSign } from "lucide-react";
 import { type Solution } from "../../types/api";
 import { useSolutionStore } from "../../stores/solutionStore";
 import TechStackEditor from "./TechStackEditor";
+import { CompetitorAnalysis } from "./CompetitorAnalysis";
 
 interface SolutionCardProps {
   solution: Solution;
@@ -92,6 +93,9 @@ const SolutionCard: React.FC<SolutionCardProps> = ({ solution }) => {
           </div>
         )}
       </div>
+
+      {/* Competitor Analysis */}
+      <CompetitorAnalysis solutionId={solution.id} />
     </div>
   );
 };

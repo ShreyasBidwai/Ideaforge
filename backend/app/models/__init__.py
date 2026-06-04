@@ -11,6 +11,7 @@ from app.models.sprint_task import SprintTask
 from app.models.build_log import BuildLog
 from app.models.setup_step import SetupStep
 from app.models.e2e_suite import E2ETest
+from app.models.competitor_analysis import CompetitorAnalysis
 
 __all__ = [
     "Base",
@@ -26,5 +27,6 @@ __all__ = [
     "BuildLog",
     "SetupStep",
     "E2ETest",
+    "CompetitorAnalysis",
 ]
 

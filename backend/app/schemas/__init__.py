@@ -35,6 +35,7 @@ from app.schemas.project import (
     SprintResponse,
     SprintTaskResponse,
 )
+from app.schemas.competitor_analysis import CompetitorAnalysisResponse
 
 __all__ = [
     "UserCreate",
@@ -62,4 +63,5 @@ __all__ = [
     "DocumentResponse",
     "SprintResponse",
     "SprintTaskResponse",
+    "CompetitorAnalysisResponse",
 ]

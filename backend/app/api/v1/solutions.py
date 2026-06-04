@@ -1,5 +1,5 @@
 from uuid import UUID
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -12,7 +12,9 @@ from app.schemas.solution import (
     SolutionUpdate,
     TechStackRecommendationResponse
 )
+from app.schemas.competitor_analysis import CompetitorAnalysisResponse
 from app.services.solution_service import SolutionService
+from app.services.competitor_analysis_service import CompetitorAnalysisService
 from app.ai.provider import get_ai_provider, AIProvider
 from app.core.cache import CacheService
 from app.core.streaming import format_sse_event
@@ -133,4 +135,68 @@ async def recommend_tech_stack(
     service = SolutionService(ai_provider, db)
     recommendation = await service.recommend_tech_stack(id, current_user.id, project_type)
     return recommendation
+
+
+async def run_analysis_background(solution_id: UUID, user_id: UUID):
+    from app.core.database import async_session
+    from app.ai.provider import get_ai_provider
+    async with async_session() as db:
+        try:
+            ai_provider = get_ai_provider()
+        except Exception:
+            ai_provider = None
+        service = CompetitorAnalysisService(ai_provider, db)
+        await service.run_analysis(solution_id, user_id)
+
+
+@router.post("/solutions/{id}/competitor-analysis/run", response_model=CompetitorAnalysisResponse)
+async def run_competitor_analysis(
+    id: UUID,
+    background_tasks: BackgroundTasks,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+    ai_provider: AIProvider = Depends(get_ai_provider),
+):
+    service = CompetitorAnalysisService(ai_provider, db)
+    analysis = await service.get_or_create(id, current_user.id)
+
+    analysis.status = "researching"
+    analysis.error = None
+    await db.commit()
+    await db.refresh(analysis)
+
+    background_tasks.add_task(run_analysis_background, id, current_user.id)
+    return analysis
+
+
+@router.get("/solutions/{id}/competitor-analysis", response_model=CompetitorAnalysisResponse)
+async def get_competitor_analysis(
+    id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+    ai_provider: AIProvider = Depends(get_ai_provider),
+):
+    service = CompetitorAnalysisService(ai_provider, db)
+    analysis = await service.get_or_create(id, current_user.id)
+    return analysis
+
+
+@router.post("/solutions/{id}/competitor-analysis/refresh", response_model=CompetitorAnalysisResponse)
+async def refresh_competitor_analysis(
+    id: UUID,
+    background_tasks: BackgroundTasks,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+    ai_provider: AIProvider = Depends(get_ai_provider),
+):
+    service = CompetitorAnalysisService(ai_provider, db)
+    analysis = await service.get_or_create(id, current_user.id)
+
+    analysis.status = "researching"
+    analysis.error = None
+    await db.commit()
+    await db.refresh(analysis)
+
+    background_tasks.add_task(run_analysis_background, id, current_user.id)
+    return analysis
 

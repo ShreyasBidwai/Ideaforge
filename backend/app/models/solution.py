@@ -55,3 +55,10 @@ class Solution(Base):
         uselist=False,
         cascade="all, delete-orphan",
     )
+    competitor_analysis = relationship(
+        "CompetitorAnalysis",
+        back_populates="solution",
+        uselist=False,
+        cascade="all, delete-orphan",
+    )
+

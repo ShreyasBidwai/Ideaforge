@@ -10,6 +10,8 @@ class Settings(BaseSettings):
     DATABASE_URL: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/ideaforge"
     REDIS_URL: str = "redis://localhost:6379"
     GEMINI_API_KEY: str
+    TAVILY_API_KEY: str = ""
+    SEARCH_PROVIDER: str = "tavily"
     JWT_SECRET: str
     JWT_ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30

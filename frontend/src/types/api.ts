@@ -270,4 +270,30 @@ export interface BuildLogEntry {
   message: string;
 }
 
+// ─── Competitor Analysis ───
+export interface Competitor {
+  name: string;
+  description: string;
+  pricing: string | null;
+  funding: string | null;
+  strengths: string[];
+  weaknesses: string[];
+  url: string | null;
+}
+
+export interface CompetitorAnalysis {
+  id: string;
+  solution_id: string;
+  status: 'pending' | 'researching' | 'completed' | 'failed';
+  competitors: Competitor[] | null;
+  market_summary: string | null;
+  differentiation: string | null;
+  sources: { title: string; url: string }[] | null;
+  researched_at: string | null;
+  error: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+
 

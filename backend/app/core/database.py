@@ -4,13 +4,23 @@ from sqlalchemy.orm import declarative_base
 
 from app.core.config import settings
 
+import sys
+from sqlalchemy.pool import NullPool
+
 # Create async engine with pool configurations
+engine_kwargs = {
+    "future": True,
+    "echo": False,
+}
+if "pytest" in sys.modules:
+    engine_kwargs["poolclass"] = NullPool
+else:
+    engine_kwargs["pool_size"] = 5
+    engine_kwargs["max_overflow"] = 10
+
 engine = create_async_engine(
     settings.DATABASE_URL,
-    pool_size=5,
-    max_overflow=10,
-    future=True,
-    echo=False,
+    **engine_kwargs
 )
 
 # Async session maker
