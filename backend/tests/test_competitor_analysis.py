@@ -88,3 +88,48 @@ async def test_does_not_touch_evaluation(client, auth_headers, mock_gemini):
     sol_after = await client.get(f"/api/v1/solutions/{sol_id}", headers=auth_headers)
     # evaluation-related fields unchanged
     assert sol_before.json().get("evaluation") == sol_after.json().get("evaluation") or sol_before.status_code == 200
+
+
+# TEST: search accepts search_depth param
+async def test_search_depth_param(monkeypatch):
+    from backend.app.services.search.tavily_provider import TavilyProvider
+    from backend.app.core.config import settings
+    settings.TAVILY_API_KEY = "k"
+    captured = {}
+    class FakeResp:
+        def raise_for_status(self): pass
+        def json(self): return {"results": []}
+    class FakeClient:
+        async def __aenter__(self): return self
+        async def __aexit__(self,*a): pass
+        async def post(self, url, json=None, **k):
+            captured.update(json or {})
+            return FakeResp()
+    monkeypatch.setattr("httpx.AsyncClient", lambda *a,**k: FakeClient())
+    await TavilyProvider().search("q", search_depth="advanced")
+    assert captured.get("search_depth") == "advanced"
+
+
+# TEST: _identify_competitor_names returns names from results (mock gemini)
+async def test_identify_names(mock_gemini):
+    import json
+    from backend.app.services.competitor_analysis_service import CompetitorAnalysisService
+    from app.ai.provider import GeminiProvider
+    from app.services.search.base import SearchResult
+    svc = CompetitorAnalysisService(ai_provider=GeminiProvider(api_key="dummy-key"), db=None)
+    mock_gemini.return_value = json.dumps({"competitors": ["PriceLabs", "Mews"]})
+    class S: title="Hotel pricing"; target_user="hotels"; industry="Hospitality"; description="d"; mechanism="m"; tech_stack=[]
+    names = await svc._identify_competitor_names(S(), [SearchResult(title="PriceLabs vs Mews", url="https://example.com", content="competitors include PriceLabs and Mews")])
+    assert "PriceLabs" in names
+
+
+# TEST: synthesis prompt now demands weaknesses + pricing extraction
+def test_synthesis_prompt_demands_weaknesses():
+    from backend.app.services.competitor_analysis_service import CompetitorAnalysisService
+    svc = CompetitorAnalysisService(ai_provider=None, db=None)
+    class S: title="X"; target_user="u"; industry="i"; description="d"; mechanism="m"; tech_stack=[]
+    system, user = svc._build_synthesis_prompt(S(), [])
+    low = system.lower()
+    assert "weakness" in low
+    assert "pricing" in low
+    assert "never fabricate" in low or "do not invent" in low

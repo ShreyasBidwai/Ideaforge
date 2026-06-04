@@ -10,5 +10,5 @@ class SearchResult:
 
 class SearchProvider(ABC):
     @abstractmethod
-    async def search(self, query: str, max_results: int = 5) -> list[SearchResult]:
+    async def search(self, query: str, max_results: int = 5, search_depth: str = "basic") -> list[SearchResult]:
         ...

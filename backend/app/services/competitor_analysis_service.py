@@ -46,19 +46,81 @@ class CompetitorAnalysisService:
             await self.db.refresh(analysis)
         return analysis
 
+    async def _identify_competitor_names(self, solution, pass1_results) -> list[str]:
+        """Ask Gemini to extract up to 5 real competitor company names from pass-1 search results.
+        Returns [] if none clearly identified. Names only, no fabrication."""
+        if not pass1_results:
+            return []
+
+        system_prompt = (
+            "You are a helpful market research extraction assistant.\n"
+            "Analyze the search results and extract up to 5 real competitor company names that are mentioned.\n"
+            "Follow these rules:\n"
+            "1. Only extract real competitor companies relevant to the user's solution.\n"
+            "2. Do not invent or fabricate names.\n"
+            "3. If no clear competitor names are mentioned, return an empty list.\n"
+            "4. Return ONLY a valid JSON object matching the requested schema.\n"
+        )
+
+        results_str = ""
+        for i, r in enumerate(pass1_results):
+            results_str += f"[{i+1}] Title: {r.title}\nURL: {r.url}\nContent: {r.content}\n\n"
+
+        user_prompt = f"""
+Given the following solution details:
+Title: {solution.title}
+Description: {solution.description}
+
+And the search results:
+{results_str}
+
+Extract up to 5 real competitor company names.
+Response schema:
+{{
+  "competitors": ["Name 1", "Name 2", "Name 3"]
+}}
+"""
+        response_schema = {
+            "type": "OBJECT",
+            "properties": {
+                "competitors": {
+                    "type": "ARRAY",
+                    "items": {"type": "STRING"}
+                }
+            },
+            "required": ["competitors"]
+        }
+
+        try:
+            raw_response = await self.ai.generate(
+                prompt=user_prompt,
+                system_prompt=system_prompt,
+                response_schema=response_schema,
+                temperature=0.0
+            )
+            data = json.loads(raw_response)
+            names = [name.strip() for name in data.get("competitors", []) if name.strip()]
+            return names[:5]
+        except Exception as e:
+            logger.error(f"Failed to identify competitor names: {e}")
+            return []
+
     async def run_analysis(self, solution_id: UUID, user_id: UUID) -> CompetitorAnalysis:
         """
         Runs in the BACKGROUND. Independent of evaluation.
         1. Set status=researching.
-        2. Build search queries from solution title + target_user + industry/location
-           (e.g. "<solution domain> competitors", "<core function> startups <location>",
-           "<target_user> <problem> software pricing"). 3-4 queries max to conserve credits.
-        3. Call self.search.search() for each query, dedupe results by domain.
-        4. Feed combined search results to Gemini with a synthesis prompt (see below).
-        5. Parse JSON: competitors[], market_summary, differentiation.
-        6. Save sources actually used (title+url), set researched_at=now(), status=completed.
-        7. On ANY failure (no key, search error, parse error): status=failed, store error,
-           DO NOT raise to caller in a way that breaks anything — this is fire-and-forget.
+        2. Pass 1 - Broad queries from solution title + target_user + industry/location
+           to identify who the competitors are.
+        3. Call self.search.search() for each query with basic depth, dedupe results by domain.
+        4. Ask Gemini to extract up to 5 real competitor company names.
+        5. Pass 2 - For each identified competitor (max 4), run targeted queries with advanced depth:
+           - "<name> pricing"
+           - "<name> funding OR revenue OR crunchbase"
+           - "<name> reviews limitations OR cons OR drawbacks"
+        6. Log total searches performed.
+        7. Deduplicate combined results by domain.
+        8. Feed to Gemini with synthesis prompt.
+        9. Save sources, set status=completed.
         """
         # Fetch the CompetitorAnalysis object to update status
         stmt = select(CompetitorAnalysis).where(CompetitorAnalysis.solution_id == solution_id)
@@ -95,7 +157,7 @@ class CompetitorAnalysisService:
             if not solution:
                 raise ValueError("Solution not found")
 
-            # Build search queries
+            # Build search queries (Pass 1)
             title = solution.title or ""
             industry = solution.problem_statement.session.industry or ""
             location = solution.problem_statement.session.location or ""
@@ -112,26 +174,61 @@ class CompetitorAnalysisService:
 
             queries = list(dict.fromkeys([q.strip() for q in queries if q.strip()]))[:3]
 
-            # Execute searches
-            all_results = []
+            # Execute Pass 1 searches
+            pass1_results = []
+            total_searches = 0
             for query in queries:
                 try:
-                    res_list = await self.search.search(query)
-                    all_results.extend(res_list)
+                    res_list = await self.search.search(query, search_depth="basic")
+                    pass1_results.extend(res_list)
+                    total_searches += 1
                 except Exception as e:
                     logger.error(f"Search query '{query}' failed: {e}")
 
-            # Deduplicate by domain
+            # Deduplicate by domain (Pass 1)
             seen_domains = set()
-            unique_results = []
+            unique_pass1_results = []
+            for r in pass1_results:
+                domain = self._get_domain(r.url)
+                if domain and domain not in seen_domains:
+                    seen_domains.add(domain)
+                    unique_pass1_results.append(r)
+
+            # Identify competitor names
+            competitor_names = await self._identify_competitor_names(solution, unique_pass1_results)
+
+            # Execute Pass 2 searches (per competitor deep research)
+            pass2_results = []
+            if competitor_names:
+                for name in competitor_names[:4]:
+                    pass2_queries = [
+                        f"{name} pricing",
+                        f"{name} funding OR revenue OR crunchbase",
+                        f"{name} reviews limitations OR cons OR drawbacks"
+                    ]
+                    for q in pass2_queries:
+                        try:
+                            res_list = await self.search.search(q, search_depth="advanced")
+                            pass2_results.extend(res_list)
+                            total_searches += 1
+                        except Exception as e:
+                            logger.error(f"Deep search query '{q}' failed: {e}")
+
+            # Log total searches
+            logger.info(f"Competitor analysis for solution {solution_id}: performed {total_searches} total searches.")
+
+            # Combine all results and deduplicate by domain
+            all_results = pass1_results + pass2_results
+            seen_domains = set()
+            all_unique_results = []
             for r in all_results:
                 domain = self._get_domain(r.url)
                 if domain and domain not in seen_domains:
                     seen_domains.add(domain)
-                    unique_results.append(r)
+                    all_unique_results.append(r)
 
             # Synthesis with Gemini
-            system_prompt, user_prompt = self._build_synthesis_prompt(solution, unique_results)
+            system_prompt, user_prompt = self._build_synthesis_prompt(solution, all_unique_results)
 
             response_schema = {
                 "type": "OBJECT",
@@ -171,7 +268,7 @@ class CompetitorAnalysisService:
             analysis.competitors = data.get("competitors", [])
             analysis.market_summary = data.get("market_summary", "")
             analysis.differentiation = data.get("differentiation", "")
-            analysis.sources = [{"title": r.title, "url": r.url} for r in unique_results]
+            analysis.sources = [{"title": r.title, "url": r.url} for r in all_unique_results]
             analysis.researched_at = func.now()
             analysis.status = "completed"
             analysis.error = None
@@ -205,24 +302,18 @@ class CompetitorAnalysisService:
         """
         System prompt MUST instruct:
         - Use ONLY the provided search results as evidence; do not invent companies.
-        - If pricing/funding is not in the results, return null for that field — never guess a number.
+        - Attempt to fill: pricing, funding, strengths, AND weaknesses for each competitor.
         - Frame everything as 'based on publicly available information'.
-        - Return ONLY valid JSON, schema:
-          {
-            "competitors": [
-              {"name": str, "description": str, "pricing": str|null,
-               "funding": str|null, "strengths": [str], "weaknesses": [str], "url": str|null}
-            ],
-            "market_summary": str,
-            "differentiation": str
-          }
-        - If no real competitors found in results, return empty competitors[] and say so in market_summary.
+        - Return ONLY valid JSON matching the schema.
         """
         system_prompt = (
             "You are a helpful and honest market research assistant.\n"
             "You MUST adhere to the following rules:\n"
             "1. Use ONLY the provided search results as evidence; do not invent companies. Only reference companies that appear in the search results.\n"
-            "2. If pricing/funding is not in the results, return null for that field — never guess a number. Do not fabricate funding/pricing numbers.\n"
+            "2. For EACH competitor, attempt to fill: pricing, funding, strengths, AND weaknesses.\n"
+            "   - 'pricing': extract concrete pricing from the company's own pricing page or comparison articles if present in the search results (e.g. '$99/mo', 'custom enterprise pricing', 'free tier available'). If genuinely not present in results, return null.\n"
+            "   - 'funding': extract funding/revenue facts if present (e.g. 'raised $30M Series B (2023)', 'bootstrapped'). If not present, return null. Do not fabricate funding/pricing numbers.\n"
+            "   - 'weaknesses': derive from review, comparison, or limitation content in search results (e.g. 'steep learning curve', 'expensive for small properties', 'limited integrations'). A competitive analysis with no weaknesses is not useful — make a genuine effort to surface real limitations from the search results, but never fabricate them. Provide an empty list ONLY if no weakness signal exists.\n"
             "3. Frame everything as 'based on publicly available information'.\n"
             "4. If no real competitors are found in the results, return an empty competitors list and say so in the market summary.\n"
             "5. Return ONLY a valid JSON object matching the requested schema.\n"
