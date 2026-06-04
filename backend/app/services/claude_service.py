@@ -464,7 +464,20 @@ class ClaudeService:
         
     @staticmethod
     def _log_activity(prompt: str, cwd: str, timeout: int, result_dict: dict):
-        """Log the prompt and results to backend/logs/claude_activity.log"""
+        """Log the prompt and results to backend/logs/claude_activity.log.
+
+        Also emits a one-line summary to the unified complete.log so Claude runs
+        show up there chronologically alongside everything else (the full
+        prompt/output stays in claude_activity.log).
+        """
+        logger.info(
+            "[claude] cwd=%s exit=%s success=%s rate_limited=%s duration=%.1fs",
+            cwd,
+            result_dict.get("exit_code", -1),
+            result_dict.get("success", False),
+            result_dict.get("is_rate_limited", False),
+            result_dict.get("duration_seconds", 0) or 0,
+        )
         try:
             log_dir = "/home/dev84/Work/aiAutomation/backend/logs"
             os.makedirs(log_dir, exist_ok=True)

@@ -16,6 +16,16 @@ from app.models.build_log import BuildLog
 
 logger = logging.getLogger(__name__)
 
+# Map BuildLog level strings (incl. custom ones like PROMPT/CLAUDE/TESTS) to
+# Python logging levels so build activity can be mirrored into complete.log.
+_PY_LEVELS = {
+    "DEBUG": logging.DEBUG,
+    "INFO": logging.INFO,
+    "WARNING": logging.WARNING,
+    "ERROR": logging.ERROR,
+    "CRITICAL": logging.CRITICAL,
+}
+
 # Task states that mean a task is still queued or actively being worked on.
 # If ANY task in a project is in one of these states, the build is not finished.
 ACTIVE_TASK_STATES = {"pending", "running", "retrying", "rate_limited"}
@@ -604,6 +614,12 @@ Fix the code so all tests pass. Do not modify the test files — fix the source 
         )
         self.db.add(log_entry)
         await self.db.commit()
+        # Mirror into the unified complete.log so build activity is visible
+        # there alongside app/uvicorn/Claude logs (in addition to the DB).
+        logger.log(
+            _PY_LEVELS.get(level, logging.INFO),
+            "[build:%s] %s | %s: %s", project_id, level, source, message,
+        )
 
     async def pause_build(self, project_id: UUID, user_id: UUID):
         self._should_stop = True

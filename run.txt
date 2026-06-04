@@ -1,3 +1,18 @@
+# ============================================================================
+# Quick start
+# ============================================================================
+# Easiest: start backend + frontend together, with EVERYTHING logged to one
+# timestamped file (backend/logs/complete.log):
+#
+#   ./run.sh
+#   tail -f backend/logs/complete.log     # watch everything live
+#
+# ----------------------------------------------------------------------------
+# Or run the services manually in two terminals (backend still logs to
+# complete.log on its own via app/core/logging_config.py):
+# ----------------------------------------------------------------------------
+
+# --- Terminal 1: backend ---
 cd backend
 
 # 1. Activate the virtual environment
@@ -10,8 +25,8 @@ alembic upgrade head
 uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 
 
+# --- Terminal 2: frontend ---
 cd frontend
 
 # Start the Vite development server
 npm run dev
-

@@ -24,3 +24,7 @@ ENV/
 # OS-generated files
 .DS_Store
 Thumbs.db
+
+# Runtime logs (unified complete log + rotations)
+backend/logs/complete.log
+backend/logs/complete.log.*

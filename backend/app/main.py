@@ -1,6 +1,13 @@
 import logging
 import os
 from contextlib import asynccontextmanager
+
+# Configure the unified complete.log before anything else imports/logs, so that
+# import-time warnings and every module's logger are captured from line one.
+from app.core.logging_config import setup_logging
+
+setup_logging()
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -8,10 +15,6 @@ from app.api.v1.router import router as api_v1_router
 from app.core.config import settings
 from app.core.cache import CacheService
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-)
 logger = logging.getLogger(__name__)
 
 
