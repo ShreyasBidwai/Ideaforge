@@ -1,0 +1,78 @@
+# IdeaForge — local Docker stack: Postgres + Redis + FastAPI backend + Vite frontend.
+#
+#   docker compose up --build
+#   Frontend:  http://localhost:5173
+#   Backend:   http://localhost:8000  (health: /api/v1/health, docs: /docs)
+#
+# The backend reuses YOUR authenticated Claude session by bind-mounting
+# ~/.claude and ~/.claude.json (see the backend `volumes`). It runs as UID 1001
+# to match the host so those creds — and the bind-mounted source — are usable,
+# and so the Claude CLI permits --dangerously-skip-permissions (it refuses as root).
+
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: tuition
+      POSTGRES_PASSWORD: tuition
+      POSTGRES_DB: ideaforge
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "5434:5432"          # optional: inspect the DB from the host (change if 5434 is taken)
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tuition -d ideaforge"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  redis:
+    image: redis:7
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  backend:
+    build:
+      context: ./backend
+    env_file:
+      - ./backend/.env       # GEMINI/TAVILY/JWT secrets, etc.
+    environment:
+      # Override the host-specific URLs from .env with in-network addresses:
+      DATABASE_URL: postgresql+asyncpg://tuition:tuition@db:5432/ideaforge
+      REDIS_URL: redis://redis:6379
+      CORS_ORIGINS: '["http://localhost:5173"]'
+      HOME: /home/app
+      # Alternative to mounting creds: uncomment and set to use an API key instead.
+      # ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+    volumes:
+      - ./backend:/app                              # live code (hot reload) + logs/ + projects/ persist on host
+      - ${HOME}/.claude:/home/app/.claude           # reuse your authenticated Claude session
+      - ${HOME}/.claude.json:/home/app/.claude.json
+    ports:
+      - "8000:8000"
+      - "8100-8110:8100-8110"   # generated child apps (preview) — see caveat in the guide
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
+
+  frontend:
+    build:
+      context: ./frontend
+    environment:
+      VITE_API_URL: http://localhost:8000   # browser (on host) -> published backend port
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules                   # keep the image's linux node_modules, not the host's
+    ports:
+      - "5173:5173"
+    depends_on:
+      - backend
+
+volumes:
+  pgdata:
